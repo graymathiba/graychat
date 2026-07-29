@@ -7,8 +7,13 @@ pubspec.lock
 # Build outputs
 dist/
 build/
+backend/dist/
 *.js.map
 *.d.ts
+backend/index.js
+backend/index.js.map
+backend/index.d.ts
+backend/index.d.ts.map
 
 # Environment
 .env
