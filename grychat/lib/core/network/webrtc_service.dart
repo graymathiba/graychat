@@ -112,8 +112,11 @@ class WebRTCService {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Transport the offer to the peer via signaling service
-      _signalingService.sendSignal(peerId, 'offer', {
+      // Transport the offer to the peer via Socket.io
+      // Use a room based on sorted peer IDs to ensure both peers use same room
+      final roomId = _generateRoomId(peerId);
+      _signalingService.joinRoom(roomId);
+      _signalingService.sendOffer(roomId, {
         'sdp': offer.sdp,
         'type': 'offer',
       });
@@ -121,6 +124,13 @@ class WebRTCService {
       print('[WebRTCService] Error initiating connection to $peerId: $e');
       _updateConnectionState(peerId, 'disconnected');
     }
+  }
+
+  /// Generate a consistent room ID for two peers
+  String _generateRoomId(String peerId) {
+    final ids = [_signalingService.localPeerId, peerId];
+    ids.sort();
+    return ids.join('_');
   }
 
   /// Sets remote SDP offer, generates SDP answer, and sends it back
@@ -139,8 +149,10 @@ class WebRTCService {
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      // Transport the answer back via signaling service
-      _signalingService.sendSignal(peerId, 'answer', {
+      // Transport the answer back via Socket.io
+      final roomId = _generateRoomId(peerId);
+      _signalingService.joinRoom(roomId);
+      _signalingService.sendAnswer(roomId, {
         'sdp': answer.sdp,
         'type': 'answer',
       });
@@ -199,9 +211,10 @@ class WebRTCService {
     final pc = await createPeerConnection(_iceConfiguration);
     _peerConnections[peerId] = pc;
 
-    // Send gathered ICE candidates via Signaling Service
+    // Send gathered ICE candidates via Socket.io
     pc.onIceCandidate = (candidate) {
-      _signalingService.sendSignal(peerId, 'ice_candidate', {
+      final roomId = _generateRoomId(peerId);
+      _signalingService.sendIceCandidate(roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,

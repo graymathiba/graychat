@@ -249,6 +249,10 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
     await ref.read(userProfileProvider.notifier).saveProfile(profile);
 
     // Reactive MyApp state will transition automatically to MainScreen!
+    // We just need to pop this pushed screen to reveal it.
+    if (mounted) {
+      Navigator.popUntil(context, (route) => route.isFirst);
+    }
   }
 
   @override

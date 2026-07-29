@@ -1,33 +1,184 @@
+import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:path_provider/path_provider.dart';
+import 'config/app_config.dart';
 import 'core/database/hive_adapters.dart';
+import 'core/database/chat_message_adapter.dart';
+import 'core/database/group_adapter.dart';
+import 'core/network/call_service.dart';
+import 'core/providers/call_provider.dart';
 import 'core/providers/database_provider.dart';
+import 'core/providers/chat_provider.dart';
+import 'core/providers/signaling_provider.dart';
+import 'ui/screens/call_screen.dart';
 import 'ui/screens/home_screen.dart';
-import 'ui/screens/welcome_screen.dart';
+import 'ui/screens/login_screen.dart';
+import 'ui/screens/signup_screen.dart';
+import 'ui/screens/forgot_password_screen.dart';
+import 'package:media_kit/media_kit.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
+
+File get _crashLog => File('${Directory.systemTemp.path}/grychat_crash_${Platform.environment['APP_PROFILE'] ?? 'main'}.log');
+
+void _logCrash(Object error, StackTrace stack) {
+  final msg = '[${DateTime.now()}] CRASH: $error\n$stack\n---\n';
+  try { _crashLog.writeAsStringSync(msg, mode: FileMode.append); } catch (_) {}
+  print('CRASH LOGGED: $error');
+}
 
 void main() async {
+  runZonedGuarded(_mainInner, _logCrash);
+}
+
+void _mainInner() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   
-  const profile = String.fromEnvironment('APP_PROFILE', defaultValue: 'main_peer');
-  final subDir = profile == 'main_peer' ? null : profile;
+  try {
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: 'REDACTED_GOOGLE_API_KEY',
+        authDomain: 'graychat-db6a0.firebaseapp.com',
+        projectId: 'graychat-db6a0',
+        storageBucket: 'graychat-db6a0.firebasestorage.app',
+        messagingSenderId: '842272015997',
+        appId: '1:842272015997:web:b6a04cea8511390f8c9314',
+      ),
+    );
+  } catch (e) {
+    print('[Init] Firebase init failed (continue as guest): $e');
+  }
+
+  try {
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      publishableKey: AppConfig.supabaseAnonKey,
+    );
+  } catch (e) {
+    print('[Init] Supabase init failed (continue as guest): $e');
+  }
+  
+  final envProfile = Platform.environment['APP_PROFILE'];
+  const dartDefineProfile = String.fromEnvironment('APP_PROFILE', defaultValue: '');
+  
+  final rawProfile = (envProfile != null && envProfile.trim().isNotEmpty) 
+      ? envProfile.trim() 
+      : (dartDefineProfile.trim().isNotEmpty ? dartDefineProfile.trim() : 'main_peer');
+      
+  final subDir = rawProfile == 'main_peer' ? null : rawProfile;
+  if (subDir != null) {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final targetDir = Directory('${docsDir.path}/$subDir');
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+  }
   await Hive.initFlutter(subDir);
   Hive.registerAdapter(PeerModelAdapter());
   Hive.registerAdapter(MessageModelAdapter());
   Hive.registerAdapter(UserProfileAdapter());
+  Hive.registerAdapter(ChatMessageAdapter());
+  Hive.registerAdapter(GroupAdapter());
   
-  runApp(const ProviderScope(child: MyApp()));
+  FlutterError.onError = (details) {
+    _logCrash(details.exception, details.stack ?? StackTrace.empty);
+    FlutterError.presentError(details);
+  };
+
+  ErrorWidget.builder = (details) {
+    _logCrash(details.exception, details.stack ?? StackTrace.empty);
+    return Material(
+      color: const Color(0xFF0F172A),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                '${details.exception.runtimeType}',
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${details.exception}',
+                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Restart the app and try again.\nClose any other GryChat instances.',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  };
+  runApp(ProviderScope(
+    observers: [],
+    child: const MyApp(),
+  ));
 }
 
-class MyApp extends ConsumerWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends ConsumerState<MyApp> {
+  bool _incomingCallShowing = false;
+
+  @override
+  Widget build(BuildContext context) {
     final dbInitState = ref.watch(databaseInitProvider);
 
+    ref.listen<AsyncValue<CallInfo?>>(callInfoProvider, (prev, next) {
+      final info = next.valueOrNull;
+      final wasRinging = prev?.valueOrNull?.state == CallState.incomingRinging;
+      final isRinging = info?.state == CallState.incomingRinging;
+
+      if (isRinging && !_incomingCallShowing) {
+        _incomingCallShowing = true;
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => IncomingCallPage(
+              callInfo: info!,
+              onDismissed: () {
+                _incomingCallShowing = false;
+              },
+            ),
+          ),
+        );
+      } else if (!isRinging && wasRinging && _incomingCallShowing) {
+        _incomingCallShowing = false;
+        if (navigatorKey.currentState?.canPop() == true) {
+          navigatorKey.currentState?.pop();
+        }
+      } else if (info == null && _incomingCallShowing) {
+        _incomingCallShowing = false;
+        if (navigatorKey.currentState?.canPop() == true) {
+          navigatorKey.currentState?.pop();
+        }
+      }
+    });
+
     return MaterialApp(
-      title: 'Liaoke',
+      navigatorKey: navigatorKey,
+      title: 'Grychat',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -37,16 +188,172 @@ class MyApp extends ConsumerWidget {
         useMaterial3: true,
         scaffoldBackgroundColor: Colors.white,
       ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1B4EBA),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF171B24),
+      ),
+      themeMode: ref.watch(darkModeProvider) ? ThemeMode.dark : ThemeMode.light,
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/signup': (_) => const SignupScreen(),
+        '/forgot-password': (_) => const ForgotPasswordScreen(),
+      },
       home: dbInitState.when(
         data: (_) {
-          final profile = ref.watch(userProfileProvider);
-          if (profile == null) {
-            return const WelcomeScreen();
-          }
+          ref.read(signalingServiceProvider);
           return const HomeScreen();
         },
-        loading: () => const SplashScreen(message: 'Initializing local database...'),
+        loading: () => const SplashScreen(message: 'Initializing...'),
         error: (err, stack) => InitErrorScreen(error: err.toString()),
+      ),
+    );
+  }
+}
+
+class IncomingCallPage extends ConsumerWidget {
+  final CallInfo callInfo;
+  final VoidCallback onDismissed;
+
+  const IncomingCallPage({
+    super.key,
+    required this.callInfo,
+    required this.onDismissed,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen<AsyncValue<CallInfo?>>(callInfoProvider, (prev, next) {
+      final info = next.valueOrNull;
+      if (info == null || (info.state != CallState.incomingRinging && info.state != CallState.connecting)) {
+        onDismissed();
+        if (context.mounted) Navigator.of(context).pop();
+      }
+    });
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: SafeArea(
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1B4EBA),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    callInfo.peerName.isNotEmpty
+                        ? callInfo.peerName[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  callInfo.peerName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  callInfo.callType == CallType.video
+                      ? 'Incoming Video Call'
+                      : 'Incoming Voice Call',
+                  style: const TextStyle(color: Colors.white54, fontSize: 14),
+                ),
+                const SizedBox(height: 40),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildButton(
+                      icon: Icons.call_end,
+                      label: 'Decline',
+                      color: const Color(0xFFEF4444),
+                      onTap: () {
+                        ref.read(callServiceProvider).rejectCall();
+                        onDismissed();
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                    _buildButton(
+                      icon: Icons.call,
+                      label: 'Accept',
+                      color: const Color(0xFF10B981),
+                      onTap: () async {
+                        final callService = ref.read(callServiceProvider);
+                        await callService.answerCall();
+                        onDismissed();
+                        if (context.mounted) {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => CallScreen(
+                                peerId: callService.remotePeerId,
+                                peerName: callInfo.peerName,
+                                callType: callInfo.callType,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
@@ -65,7 +372,6 @@ class SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Glowing radar/pulse effect simulated by progress bar
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -185,7 +491,6 @@ class InitErrorScreen extends ConsumerWidget {
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
                 onPressed: () {
-                  // Invalidate databaseInitProvider to trigger re-initialization
                   ref.invalidate(databaseInitProvider);
                 },
               ),

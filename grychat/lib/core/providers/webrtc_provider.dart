@@ -1,30 +1,26 @@
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'signaling_provider.dart';
-import 'database_provider.dart';
 import '../network/webrtc_service.dart';
+import 'database_provider.dart';
+import 'signaling_provider.dart';
 
-// Provides a singleton instance of the WebRTCService
+// Provides the WebRTCService instance
 final webrtcServiceProvider = Provider<WebRTCService>((ref) {
-  final signalingService = ref.watch(signalingServiceProvider);
-  final databaseService = ref.watch(databaseServiceProvider);
-  final webrtcService = WebRTCService(signalingService, databaseService);
-
-  ref.onDispose(() {
-    webrtcService.dispose();
-  });
-
-  return webrtcService;
+  final signaling = ref.watch(signalingServiceProvider);
+  final db = ref.watch(databaseServiceProvider);
+  return WebRTCService(signaling, db);
 });
 
-// A StateNotifier to expose active peer connection states reactively to the UI
-class PeerConnectionStateNotifier extends StateNotifier<Map<String, String>> {
-  final WebRTCService _webrtcService;
-  StreamSubscription? _subscription;
+// Provides the reactive connection states for peers
+final peerConnectionStateProvider = StateNotifierProvider<PeerConnectionNotifier, Map<String, String>>((ref) {
+  final webrtcService = ref.watch(webrtcServiceProvider);
+  return PeerConnectionNotifier(webrtcService);
+});
 
-  PeerConnectionStateNotifier(this._webrtcService) : super({}) {
-    // Listen to connection state update events from the WebRTCService
-    _subscription = _webrtcService.connectionStateStream.listen((update) {
+class PeerConnectionNotifier extends StateNotifier<Map<String, String>> {
+  final WebRTCService _webRTCService;
+
+  PeerConnectionNotifier(this._webRTCService) : super({}) {
+    _webRTCService.connectionStateStream.listen((update) {
       state = {
         ...state,
         update.peerId: update.state,
@@ -32,21 +28,7 @@ class PeerConnectionStateNotifier extends StateNotifier<Map<String, String>> {
     });
   }
 
-  /// Triggers a connection request to a specific peer
-  Future<void> connectToPeer(String peerId) async {
-    await _webrtcService.connectToPeer(peerId);
-  }
-
-  @override
-  void dispose() {
-    _subscription?.cancel();
-    super.dispose();
+  void connectToPeer(String peerId) {
+    _webRTCService.connectToPeer(peerId);
   }
 }
-
-// Provider for tracking the connection state of all peers
-final peerConnectionStateProvider =
-    StateNotifierProvider<PeerConnectionStateNotifier, Map<String, String>>((ref) {
-  final webrtcService = ref.watch(webrtcServiceProvider);
-  return PeerConnectionStateNotifier(webrtcService);
-});

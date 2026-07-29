@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.dart_tool/
+.packages
+pubspec.lock
+
+# Build outputs
+dist/
+build/
+*.js.map
+*.d.ts
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Flutter
+grychat/.dart_tool/
+grychat/.packages
+grychat/build/
+grychat/.flutter-plugins
+grychat/.flutter-plugins-dependencies
+grychat/pubspec.lock
+
+# Logs
+*.log
+flutter_run_verbose.log
+
+# OS
+Thumbs.db
+desktop.ini
