@@ -204,8 +204,21 @@ class _MyAppState extends ConsumerState<MyApp> {
       },
       home: dbInitState.when(
         data: (_) {
-          ref.read(signalingServiceProvider);
-          return const HomeScreen();
+          return Consumer(builder: (context, ref, _) {
+            final authState = ref.watch(currentUserProvider);
+            return authState.when(
+              data: (user) {
+                if (user == null) return const LoginScreen();
+                ref.read(signalingServiceProvider);
+                return const HomeScreen();
+              },
+              loading: () => const SplashScreen(message: 'Checking login...'),
+              error: (err, _) {
+                print('[Auth] Error: $err');
+                return const LoginScreen();
+              },
+            );
+          });
         },
         loading: () => const SplashScreen(message: 'Initializing...'),
         error: (err, stack) => InitErrorScreen(error: err.toString()),

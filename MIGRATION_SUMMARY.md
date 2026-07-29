@@ -174,3 +174,11 @@ For two isolated local instances, set `APP_PROFILE` to different values before l
 - **Multiple Instances Support (Launch_Grychats.bat):** Fixed issues with instances failing to launch from PowerShell by creating a batch file that properly sets the working directory, injects isolated `APP_PROFILE` environment variables, and launches the debug builds natively to ensure windows appear interactively.
 - **Video Player Fallback (Windows):** Resolved an issue where unsupported videos (or audio files sent with video extensions like `.mpeg`) would cause an endless loading spinner because `video_player_win` swallowed the codec initialization error. The UI now gracefully catches this state and renders a "Play in System Player" fallback button, allowing the user to open unsupported media natively in VLC/Windows Media Player.
 - **WhatsApp Audio Detection:** Improved the attachment rendering logic to check for 'WhatsApp Audio' in both `fileName` and `content`. If matched, it correctly routes the file to the more robust `_AudioAttachmentPlayer` rather than attempting to initialize it as a video.
+- **Backend `groups` variable fix:** Added missing `groups` Map declaration in `backend/index.ts` that caused 8 TypeScript compilation errors. Group chat operations now work at runtime.
+- **Deleted `signaling_server/` duplicate:** Removed the legacy standalone signaling server that conflicted on port 3000 with the main backend.
+- **Firebase credentials configured:** Replaced placeholder Firebase config in `main.dart` with real project credentials (`graychat-db6a0`).
+- **Supabase defaults set:** Updated `app_config.dart` with real Supabase URL and anon key from the backend `.env`.
+- **JWT_SECRET generated:** Backend `.env` now uses a randomly generated 64-char hex JWT secret.
+- **All 9 Dart warnings eliminated:** Removed dead code (`authUser` null check), unused fields (`_isSendingVoice`, `_stackTrace`), unused imports/methods (`_showCreateGroupDialog`, `_handleError`, `_showErrorDialog`, `showErrorDialog`), and fixed `catchError` return type.
+- **Firebase init failure handled:** Wrapped Firebase.initializeApp and Supabase.initialize in try-catch so the app falls back to guest mode if credentials are missing.
+- **Git committed:** Full project state saved across 3 commits (56 files changed) with `.env` properly excluded from version control.
