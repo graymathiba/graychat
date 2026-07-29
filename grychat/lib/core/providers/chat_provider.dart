@@ -7,6 +7,7 @@ import '../../config/app_config.dart';
 import '../network/chat_service.dart';
 import '../database/database_service.dart';
 import '../models/chat_message.dart';
+import '../models/group.dart';
 import '../utils/app_logger.dart';
 import 'database_provider.dart';
 
@@ -586,6 +587,86 @@ class ConversationListNotifier
   void dispose() {
     _messageSub.cancel();
     _ackSub.cancel();
+    super.dispose();
+  }
+}
+
+// ─── Group Provider ─────────────────────────────────────────────────
+final groupsProvider = StateNotifierProvider<GroupsNotifier, List<Group>>((ref) {
+  final chatService = ref.watch(chatServiceProvider);
+  final dbService = ref.watch(databaseServiceProvider);
+  return GroupsNotifier(chatService, dbService);
+});
+
+class GroupsNotifier extends StateNotifier<List<Group>> {
+  final ChatService _chatService;
+  final DatabaseService _dbService;
+  StreamSubscription? _groupSub;
+
+  GroupsNotifier(this._chatService, this._dbService) : super([]) {
+    _loadFromHive();
+    _groupSub = _chatService.groupStream.listen(_handleGroupEvent);
+  }
+
+  void _loadFromHive() {
+    try {
+      state = _dbService.getAllGroups();
+    } catch (_) {}
+  }
+
+  void _handleGroupEvent(Map<String, dynamic> event) {
+    final type = event['type'] as String?;
+    final data = event['data'] as Map<String, dynamic>?;
+    if (data == null) return;
+
+    switch (type) {
+      case 'created':
+        final group = Group.fromJson(data);
+        _dbService.addGroup(group);
+        state = [...state, group];
+        break;
+      case 'info':
+        final group = Group.fromJson(data);
+        _dbService.addGroup(group);
+        final idx = state.indexWhere((g) => g.id == group.id);
+        if (idx >= 0) {
+          state = [...state]..[idx] = group;
+        } else {
+          state = [...state, group];
+        }
+        break;
+      case 'memberLeft':
+        final groupId = data['groupId'] as String?;
+        final userId = data['userId'] as String?;
+        if (groupId != null && userId != null) {
+          final existing = _dbService.getGroupById(groupId);
+          if (existing != null) {
+            final updated = existing.copyWith(
+              memberIds: existing.memberIds.where((id) => id != userId).toList(),
+            );
+            _dbService.addGroup(updated);
+            state = state.map((g) => g.id == groupId ? updated : g).toList();
+          }
+        }
+        break;
+    }
+  }
+
+  void createGroup({
+    required String groupId,
+    required String groupName,
+    required List<String> memberIds,
+  }) {
+    _chatService.createGroup(
+      groupId: groupId,
+      groupName: groupName,
+      memberIds: memberIds,
+    );
+  }
+
+  @override
+  void dispose() {
+    _groupSub?.cancel();
     super.dispose();
   }
 }

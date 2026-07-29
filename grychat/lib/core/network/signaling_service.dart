@@ -1,37 +1,25 @@
 import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as io;
-import 'package:firebase_auth/firebase_auth.dart';
 
 class SignalingService {
-  final String serverUrl;
   final String localPeerId;
-  late io.Socket _socket;
+  final io.Socket _socket;
   bool _isConnected = false;
 
   final StreamController<Map<String, dynamic>> _signalController =
       StreamController<Map<String, dynamic>>.broadcast();
 
-  SignalingService({required this.serverUrl, required this.localPeerId});
+  SignalingService({required io.Socket socket, required this.localPeerId})
+      : _socket = socket {
+    _setupListeners();
+  }
 
   bool get isConnected => _isConnected;
   Stream<Map<String, dynamic>> get signalStream => _signalController.stream;
 
-  Future<void> connect() async {
-    String? token;
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      token = await user?.getIdToken();
-    } catch (_) {}
-    
-    _socket = io.io(serverUrl, <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': false,
-      if (token != null) 'auth': {'token': token},
-    });
-
+  void _setupListeners() {
     _socket.onConnect((_) {
       _isConnected = true;
-      _socket.emit('register', {'userId': localPeerId});
       _signalController.add({'type': 'server_connection', 'data': {'connected': true}});
     });
 
@@ -47,14 +35,10 @@ class SignalingService {
       _isConnected = false;
       _signalController.add({'type': 'server_connection', 'data': {'connected': false}});
     });
-
-    _socket.connect();
   }
 
   void emit(String event, dynamic data) {
-    if (_isConnected) {
-      _socket.emit(event, data);
-    }
+    _socket.emit(event, data);
   }
 
   void joinRoom(String roomId) {
@@ -82,8 +66,6 @@ class SignalingService {
   }
 
   void dispose() {
-    _socket.disconnect();
-    _socket.dispose();
     _signalController.close();
   }
 }

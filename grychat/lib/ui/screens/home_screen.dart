@@ -1,18 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/models/chat_message.dart';
+import '../../core/models/group.dart';
 import '../../core/database/models.dart';
 import '../../core/providers/database_provider.dart';
 import '../../core/providers/chat_provider.dart';
 import '../../core/network/auth_service.dart';
 import 'chat_screen.dart';
 import 'contacts_screen.dart';
-import 'dart:async';
-import 'package:file_picker/file_picker.dart';
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -36,6 +38,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _showNewChatDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildActionTile(
+                  icon: Icons.person_add_alt,
+                  title: 'New Chat',
+                  subtitle: 'Connect with a friend using their invite code',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showShortCodeDialog();
+                  },
+                ),
+                const SizedBox(height: 8),
+                _buildActionTile(
+                  icon: Icons.group_add,
+                  title: 'Create Group',
+                  subtitle: 'Start a group conversation',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showCreateGroupDialog();
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: const Color(0xFFF4F6FA),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 48, height: 48,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1B4EBA),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF171B24),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: Color(0xFF7E8494), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF7E8494)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showShortCodeDialog() {
     _shortCodeController.clear();
     String? errorText;
     bool isSearching = false;
@@ -224,6 +329,127 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         },
                   child: const Text('Find'),
                 ),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  void _showCreateGroupDialog() {
+    final groupNameController = TextEditingController();
+    final Set<String> selectedMemberIds = {};
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setDialogState) {
+          final onlineUsers = ref.read(userPresenceProvider);
+          final peers = ref.read(peersProvider);
+          final localUserId = ref.read(localUserIdProvider);
+          final candidates = <Map<String, dynamic>>[];
+
+          for (final entry in onlineUsers.entries) {
+            if (entry.key == localUserId) continue;
+            candidates.add({
+              'userId': entry.key,
+              'displayName': entry.value['displayName'] ?? entry.key.substring(0, 8),
+            });
+          }
+          for (final peer in peers) {
+            if (peer.id == localUserId) continue;
+            if (candidates.any((c) => c['userId'] == peer.id)) continue;
+            candidates.add({
+              'userId': peer.id,
+              'displayName': peer.deviceName,
+            });
+          }
+
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Create Group', style: TextStyle(color: Color(0xFF171B24), fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: groupNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Group Name',
+                      hintText: 'e.g., Project Team',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (candidates.isEmpty)
+                    const Text('No online contacts to add', style: TextStyle(color: Color(0xFF7E8494)))
+                  else
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: candidates.length,
+                        itemBuilder: (context, index) {
+                          final c = candidates[index];
+                          final isSelected = selectedMemberIds.contains(c['userId']);
+                          return CheckboxListTile(
+                            value: isSelected,
+                            onChanged: (val) {
+                              setDialogState(() {
+                                if (isSelected) {
+                                  selectedMemberIds.remove(c['userId']);
+                                } else {
+                                  selectedMemberIds.add(c['userId']);
+                                }
+                              });
+                            },
+                            title: Text(c['displayName'] as String),
+                            secondary: CircleAvatar(
+                              child: Text((c['displayName'] as String)[0]),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF7E8494))),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B4EBA),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: selectedMemberIds.isEmpty || groupNameController.text.trim().isEmpty
+                    ? null
+                    : () {
+                        final groupId = const Uuid().v4();
+                        final groupName = groupNameController.text.trim();
+                        final memberIds = selectedMemberIds.toList();
+                        ref.read(groupsProvider.notifier).createGroup(
+                          groupId: groupId,
+                          groupName: groupName,
+                          memberIds: memberIds,
+                        );
+                        final dbService = ref.read(databaseServiceProvider);
+                        dbService.addGroup(Group(
+                          id: groupId,
+                          name: groupName,
+                          creatorId: localUserId,
+                          memberIds: [localUserId, ...memberIds],
+                          createdAt: DateTime.now(),
+                        ));
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Group "$groupName" created')),
+                        );
+                      },
+                child: const Text('Create'),
+              ),
             ],
           );
         });
