@@ -109,21 +109,26 @@ class DatabaseService {
     }
   }
 
-  /// Get the user profile
-  UserProfile? getUserProfile() {
+  /// Get the user profile for a specific userId (Firebase UID).
+  /// Returns null if no profile exists for that user.
+  UserProfile? getUserProfile(String userId) {
     try {
-      return _profileBox.get('user_profile');
+      if (userId.isEmpty) return null;
+      return _profileBox.get(userId);
     } catch (e) {
       print('[DatabaseService] ERROR getting profile: $e');
       return null;
     }
   }
 
-  /// Save user profile
+  /// Save user profile, keyed by the profile's userId.
   Future<void> saveUserProfile(UserProfile profile) async {
     try {
-      await _profileBox.put('user_profile', profile);
-      print('[DatabaseService] User profile saved/updated: ${profile.firstName}');
+      if (profile.userId.isEmpty) {
+        print('[DatabaseService] WARNING: saving profile with empty userId');
+      }
+      await _profileBox.put(profile.userId.isNotEmpty ? profile.userId : 'user_profile', profile);
+      print('[DatabaseService] User profile saved/updated for userId=${profile.userId}: ${profile.firstName}');
     } catch (e) {
       print('[DatabaseService] ERROR saving profile: $e');
       rethrow;

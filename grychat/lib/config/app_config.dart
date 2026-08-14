@@ -9,15 +9,9 @@ class AppConfig {
   );
 
   // Supabase Configuration
-  static const String supabaseUrl = String.fromEnvironment(
-    'SUPABASE_URL',
-    defaultValue: 'https://peaoxjefltucmyibmgnn.supabase.co',
-  );
+  static const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 
-  static const String supabaseAnonKey = String.fromEnvironment(
-    'SUPABASE_ANON_KEY',
-    defaultValue: 'sb_publishable_GzSVIBbE318iyLPpbbSa9A_rMYNysAW',
-  );
+  static const String supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
   // App Configuration
   static const String appName = 'Grychat';
@@ -37,4 +31,21 @@ class AppConfig {
         return backendUrl;
     }
   }
+
+  // WebRTC ICE servers for NAT traversal (STUN) and cross-network relay (TURN).
+  static const Map<String, dynamic> iceServers = {
+    'iceServers': [
+      {
+        'urls': [
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+        ],
+      },
+      {
+        'urls': 'turn:free.expressturn.com:3478',
+        'username': '000000002102080998',
+        'credential': 'WoOD+jCtcbNSn1FI3UiKuwBc+4Y=',
+      },
+    ],
+  };
 }

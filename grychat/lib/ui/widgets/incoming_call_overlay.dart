@@ -8,7 +8,8 @@ class IncomingCallOverlay extends ConsumerStatefulWidget {
   const IncomingCallOverlay({super.key});
 
   @override
-  ConsumerState<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
+  ConsumerState<IncomingCallOverlay> createState() =>
+      _IncomingCallOverlayState();
 }
 
 class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
@@ -111,7 +112,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 
@@ -129,10 +130,7 @@ class _IncomingCallOverlayState extends ConsumerState<IncomingCallOverlay> {
           Container(
             width: 64,
             height: 64,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             child: Icon(icon, color: Colors.white, size: 28),
           ),
           const SizedBox(height: 8),

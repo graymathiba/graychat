@@ -182,12 +182,11 @@ class UserPresenceNotifier
       // Merge with existing data so we don't lose displayName/profilePicBase64
       // on offline events that may lack those fields.
       final existing = state[userId];
-      final merged = <String, dynamic>{
-        if (existing != null) ...existing,
-        ...data,
-      };
+      final merged = <String, dynamic>{...?existing, ...data};
       // If the incoming event has no displayName but we have one cached, keep it.
-      if (merged['displayName'] == null && existing != null && existing['displayName'] != null) {
+      if (merged['displayName'] == null &&
+          existing != null &&
+          existing['displayName'] != null) {
         merged['displayName'] = existing['displayName'];
         merged['profilePicBase64'] = existing['profilePicBase64'];
       }
@@ -377,7 +376,11 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     });
   }
 
-  Future<void> sendMessage(String text, String receiverId, {ChatMessage? replyTo}) async {
+  Future<void> sendMessage(
+    String text,
+    String receiverId, {
+    ChatMessage? replyTo,
+  }) async {
     final message = ChatMessage(
       id: const Uuid().v4(),
       roomId: _roomId,
@@ -406,9 +409,11 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
 
     final unreadIds = unreadMessages.map((message) => message.id).toSet();
     state = state
-        .map((message) => unreadIds.contains(message.id)
-            ? message.copyWith(status: 'read')
-            : message)
+        .map(
+          (message) => unreadIds.contains(message.id)
+              ? message.copyWith(status: 'read')
+              : message,
+        )
         .toList();
     for (final message in unreadMessages) {
       _chatService.sendReadReceipt(_roomId, message.id);
@@ -421,7 +426,12 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
       final emoji = data['emoji'] as String?;
       final senderId = data['senderId'] as String?;
       final action = data['action'] as String?;
-      if (messageId == null || emoji == null || senderId == null || action == null) return;
+      if (messageId == null ||
+          emoji == null ||
+          senderId == null ||
+          action == null) {
+        return;
+      }
 
       state = state.map((msg) {
         if (msg.id == messageId) {
@@ -447,7 +457,9 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
       return msg;
     }).toList();
 
-    final targetId = message.senderId == _localUserId ? message.receiverId : message.senderId;
+    final targetId = message.senderId == _localUserId
+        ? message.receiverId
+        : message.senderId;
     _chatService.sendReaction(
       targetId: targetId,
       messageId: messageId,
@@ -506,8 +518,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
 }
 
 // ─── Dark Mode ─────────────────────────────────────────────────────
-final darkModeProvider =
-    StateNotifierProvider<DarkModeNotifier, bool>((ref) {
+final darkModeProvider = StateNotifierProvider<DarkModeNotifier, bool>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
   return DarkModeNotifier(dbService);
 });
@@ -592,7 +603,9 @@ class ConversationListNotifier
 }
 
 // ─── Group Provider ─────────────────────────────────────────────────
-final groupsProvider = StateNotifierProvider<GroupsNotifier, List<Group>>((ref) {
+final groupsProvider = StateNotifierProvider<GroupsNotifier, List<Group>>((
+  ref,
+) {
   final chatService = ref.watch(chatServiceProvider);
   final dbService = ref.watch(databaseServiceProvider);
   return GroupsNotifier(chatService, dbService);
@@ -615,7 +628,7 @@ class GroupsNotifier extends StateNotifier<List<Group>> {
   }
 
   void _handleGroupEvent(Map<String, dynamic> event) {
-    final type = event['type'] as String?;
+    final type = event['event'] as String? ?? event['type'] as String?;
     final data = event['data'] as Map<String, dynamic>?;
     if (data == null) return;
 
@@ -642,7 +655,9 @@ class GroupsNotifier extends StateNotifier<List<Group>> {
           final existing = _dbService.getGroupById(groupId);
           if (existing != null) {
             final updated = existing.copyWith(
-              memberIds: existing.memberIds.where((id) => id != userId).toList(),
+              memberIds: existing.memberIds
+                  .where((id) => id != userId)
+                  .toList(),
             );
             _dbService.addGroup(updated);
             state = state.map((g) => g.id == groupId ? updated : g).toList();

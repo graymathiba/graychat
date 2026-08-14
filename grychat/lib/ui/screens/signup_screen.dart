@@ -1,36 +1,225 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
 import '../../core/network/auth_service.dart';
+import '../../core/database/models.dart';
+import '../../core/providers/database_provider.dart';
 
-class SignupScreen extends StatefulWidget {
+class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
 
   @override
-  State<SignupScreen> createState() => _SignupScreenState();
+  ConsumerState<SignupScreen> createState() => _SignupScreenState();
 }
 
-class _SignupScreenState extends State<SignupScreen> {
+class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _usernameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _error;
+  String? _selectedAvatarUrl;
+  String? _base64Image;
+
+  final List<Map<String, String>> _presetAvatars = [
+    {
+      'name': 'Default 1',
+      'url':
+          'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+    },
+    {
+      'name': 'Default 2',
+      'url':
+          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
+    },
+    {
+      'name': 'Default 3',
+      'url':
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+    },
+    {
+      'name': 'Default 4',
+      'url':
+          'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
+    },
+    {
+      'name': 'Default 5',
+      'url':
+          'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150',
+    },
+    {
+      'name': 'Default 6',
+      'url':
+          'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150',
+    },
+  ];
 
   @override
   void dispose() {
     _usernameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  Future<void> _pickFromGallery() async {
+    final XFile? image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+    );
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      setState(() {
+        _base64Image = base64Encode(bytes);
+        _selectedAvatarUrl = null;
+      });
+    }
+  }
+
+  void _selectPresetAvatar(String url) {
+    setState(() {
+      _selectedAvatarUrl = url;
+      _base64Image = null;
+    });
+  }
+
+  void _showImageSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Choose Profile Picture',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF171B24),
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_library,
+                    color: Color(0xFF1B4EBA),
+                  ),
+                  title: const Text('Pick from Gallery'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickFromGallery();
+                  },
+                ),
+                const Divider(),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Default Avatars',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF7E8494),
+                    ),
+                  ),
+                ),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: _presetAvatars.map((a) {
+                    final selected = _selectedAvatarUrl == a['url'];
+                    return GestureDetector(
+                      onTap: () {
+                        _selectPresetAvatar(a['url']!);
+                        Navigator.pop(ctx);
+                      },
+                      child: Stack(
+                        children: [
+                          ClipOval(
+                            child: Image.network(
+                              a['url']!,
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                width: 60,
+                                height: 60,
+                                color: Colors.grey[200],
+                                child: const Icon(
+                                  Icons.person,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (selected)
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.all(2),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF1B4EBA),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.check,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _signup() async {
     final username = _usernameController.text.trim();
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (username.isEmpty || email.isEmpty || password.isEmpty) {
+    if (username.isEmpty ||
+        firstName.isEmpty ||
+        lastName.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty) {
       setState(() => _error = 'Please fill in all fields');
       return;
     }
@@ -46,6 +235,10 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() => _error = 'Please enter a valid email');
       return;
     }
+    if (_selectedAvatarUrl == null && _base64Image == null) {
+      setState(() => _error = 'Please select a profile picture');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -53,9 +246,28 @@ class _SignupScreenState extends State<SignupScreen> {
     });
 
     try {
-      await authService.signUp(email: email, password: password, username: username);
+      await authService.signUp(
+        email: email,
+        password: password,
+        username: username,
+      );
+
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser != null) {
+        final profile = UserProfile(
+          firstName: firstName,
+          lastName: lastName,
+          phoneNumber: '',
+          profilePicPath: _selectedAvatarUrl,
+          profilePicBase64: _base64Image,
+          userId: firebaseUser.uid,
+        );
+        await ref.read(userProfileProvider.notifier).saveProfile(profile);
+      }
     } on FirebaseAuthException catch (e) {
-      print('[SignupScreen] Firebase error: code=${e.code}, message=${e.message}');
+      print(
+        '[SignupScreen] Firebase error: code=${e.code}, message=${e.message}',
+      );
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -111,12 +323,60 @@ class _SignupScreenState extends State<SignupScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.person_add_alt_1_rounded, size: 48, color: Color(0xFF1B4EBA)),
-                const SizedBox(height: 16),
-                const Text('Create Account', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF171B24))),
-                const SizedBox(height: 8),
-                const Text('Sign up to get started', style: TextStyle(color: Color(0xFF7E8494), fontSize: 15)),
-                const SizedBox(height: 36),
+                GestureDetector(
+                  onTap: _showImageSelector,
+                  child: Stack(
+                    children: [
+                      ClipOval(
+                        child: _base64Image != null
+                            ? Image.memory(
+                                base64Decode(_base64Image!),
+                                width: 88,
+                                height: 88,
+                                fit: BoxFit.cover,
+                              )
+                            : _selectedAvatarUrl != null
+                            ? Image.network(
+                                _selectedAvatarUrl!,
+                                width: 88,
+                                height: 88,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => _defaultAvatar(),
+                              )
+                            : _defaultAvatar(),
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF1B4EBA),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: _showImageSelector,
+                  child: const Text(
+                    'Add profile picture',
+                    style: TextStyle(
+                      color: Color(0xFF1B4EBA),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
 
                 if (_error != null)
                   Container(
@@ -127,7 +387,14 @@ class _SignupScreenState extends State<SignupScreen> {
                       color: Colors.redAccent.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13), textAlign: TextAlign.center),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
 
                 TextField(
@@ -136,12 +403,89 @@ class _SignupScreenState extends State<SignupScreen> {
                   style: const TextStyle(color: Color(0xFF171B24)),
                   decoration: InputDecoration(
                     hintText: 'Username',
-                    prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF7E8494)),
+                    prefixIcon: const Icon(
+                      Icons.person_outline,
+                      color: Color(0xFF7E8494),
+                    ),
                     filled: true,
                     fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF1B4EBA),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                TextField(
+                  controller: _firstNameController,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(color: Color(0xFF171B24)),
+                  decoration: InputDecoration(
+                    hintText: 'First Name',
+                    prefixIcon: const Icon(
+                      Icons.badge_outlined,
+                      color: Color(0xFF7E8494),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF1B4EBA),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                TextField(
+                  controller: _lastNameController,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(color: Color(0xFF171B24)),
+                  decoration: InputDecoration(
+                    hintText: 'Last Name',
+                    prefixIcon: const Icon(
+                      Icons.badge_outlined,
+                      color: Color(0xFF7E8494),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF1B4EBA),
+                        width: 1.5,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -153,12 +497,27 @@ class _SignupScreenState extends State<SignupScreen> {
                   style: const TextStyle(color: Color(0xFF171B24)),
                   decoration: InputDecoration(
                     hintText: 'Email address',
-                    prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF7E8494)),
+                    prefixIcon: const Icon(
+                      Icons.email_outlined,
+                      color: Color(0xFF7E8494),
+                    ),
                     filled: true,
                     fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF1B4EBA),
+                        width: 1.5,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -171,16 +530,37 @@ class _SignupScreenState extends State<SignupScreen> {
                   style: const TextStyle(color: Color(0xFF171B24)),
                   decoration: InputDecoration(
                     hintText: 'Password (min 6 characters)',
-                    prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF7E8494)),
+                    prefixIcon: const Icon(
+                      Icons.lock_outline,
+                      color: Color(0xFF7E8494),
+                    ),
                     suffixIcon: IconButton(
-                      icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: const Color(0xFF7E8494)),
-                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: const Color(0xFF7E8494),
+                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     filled: true,
                     fillColor: Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFE2E6EE)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF1B4EBA),
+                        width: 1.5,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 28),
@@ -193,12 +573,27 @@ class _SignupScreenState extends State<SignupScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1B4EBA),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       elevation: 0,
                     ),
                     child: _isLoading
-                        ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Text('Sign Up', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Sign Up',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -206,10 +601,20 @@ class _SignupScreenState extends State<SignupScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Already have an account? ', style: TextStyle(color: Color(0xFF7E8494), fontSize: 14)),
+                    const Text(
+                      'Already have an account? ',
+                      style: TextStyle(color: Color(0xFF7E8494), fontSize: 14),
+                    ),
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
-                      child: const Text('Sign In', style: TextStyle(color: Color(0xFF1B4EBA), fontWeight: FontWeight.bold, fontSize: 14)),
+                      child: const Text(
+                        'Sign In',
+                        style: TextStyle(
+                          color: Color(0xFF1B4EBA),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -218,6 +623,18 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _defaultAvatar() {
+    return Container(
+      width: 88,
+      height: 88,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE2E6EE),
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.person, size: 44, color: Color(0xFF7E8494)),
     );
   }
 }

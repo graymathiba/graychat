@@ -117,12 +117,13 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
       phoneNumber: fields[2] as String,
       profilePicPath: fields[3] as String?,
       profilePicBase64: fields[4] as String?,
+      userId: fields[5] as String? ?? '',
     );
   }
 
   @override
   void write(BinaryWriter writer, UserProfile obj) {
-    writer.writeByte(5);
+    writer.writeByte(6);
     writer.writeByte(0);
     writer.write(obj.firstName);
     writer.writeByte(1);
@@ -133,5 +134,7 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
     writer.write(obj.profilePicPath);
     writer.writeByte(4);
     writer.write(obj.profilePicBase64);
+    writer.writeByte(5);
+    writer.write(obj.userId);
   }
 }

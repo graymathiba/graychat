@@ -269,7 +269,7 @@ class ChatService {
 
   // ─── Presence Registration ───────────────────────────────────────
   void _registerPresence() {
-    final profile = databaseService?.getUserProfile();
+    final profile = databaseService?.getUserProfile(localUserId);
     final data = <String, dynamic>{
       'userId': localUserId,
       'timestamp': DateTime.now().toIso8601String(),
@@ -321,9 +321,7 @@ class ChatService {
       print('[ChatService] Cannot resolve short code: Not connected');
       return;
     }
-    _socket.emit('resolveShortCode', {
-      'shortCode': normalizedCode,
-    });
+    _socket.emit('resolveShortCode', {'shortCode': normalizedCode});
   }
 
   // ─── Room Management ─────────────────────────────────────────────
@@ -380,7 +378,7 @@ class ChatService {
       'messageId': messageId,
       'emoji': emoji,
       'action': action,
-      if (groupId != null) 'groupId': groupId,
+      'groupId': ?groupId,
     });
   }
 
@@ -409,10 +407,7 @@ class ChatService {
   }
 
   // ─── Profile Update ──────────────────────────────────────────────
-  void updateProfile({
-    required String displayName,
-    String? profilePicBase64,
-  }) {
+  void updateProfile({required String displayName, String? profilePicBase64}) {
     if (!isConnected) return;
     _socket.emit('updateProfile', {
       'displayName': displayName,
@@ -428,6 +423,8 @@ class ChatService {
     for (final targetId in targetUserIds) {
       final forwarded = original.copyWith(
         receiverId: targetId,
+        roomId: ChatMessage.deriveRoomId(original.senderId, targetId),
+        groupId: null,
         forwardedFrom: original.senderId,
         timestamp: DateTime.now(),
         status: 'sending',

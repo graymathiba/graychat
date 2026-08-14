@@ -21,9 +21,15 @@ class ContactsScreen extends ConsumerWidget {
       final peerMatch = peers.where((p) => p.id == entry.key);
       contacts.add({
         'userId': entry.key,
-        'displayName': entry.value['displayName'] ??
-            (peerMatch.isNotEmpty ? peerMatch.first.deviceName : entry.key.substring(0, 8)),
-        'profilePicBase64': entry.value['profilePicBase64'] ??
+        'displayName':
+            entry.value['displayName'] ??
+            (peerMatch.isNotEmpty
+                ? peerMatch.first.deviceName
+                : (entry.key.length >= 8
+                      ? entry.key.substring(0, 8)
+                      : entry.key)),
+        'profilePicBase64':
+            entry.value['profilePicBase64'] ??
             (peerMatch.isNotEmpty ? peerMatch.first.profilePicBase64 : null),
         'isOnline': entry.value['status'] == 'online',
         'lastSeen': entry.value['lastSeen'],
@@ -63,7 +69,7 @@ class ContactsScreen extends ConsumerWidget {
             )
           : ListView.separated(
               itemCount: contacts.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+              separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
               itemBuilder: (context, index) {
                 final contact = contacts[index];
                 final name = contact['displayName'] as String;
@@ -77,7 +83,10 @@ class ContactsScreen extends ConsumerWidget {
                         backgroundColor: const Color(0xFF1B4EBA),
                         child: Text(
                           name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                       Positioned(
@@ -87,7 +96,9 @@ class ContactsScreen extends ConsumerWidget {
                           width: 12,
                           height: 12,
                           decoration: BoxDecoration(
-                            color: isOnline ? const Color(0xFF10B981) : Colors.grey,
+                            color: isOnline
+                                ? const Color(0xFF10B981)
+                                : Colors.grey,
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 2),
                           ),
@@ -102,13 +113,18 @@ class ContactsScreen extends ConsumerWidget {
                   subtitle: Text(
                     isOnline ? 'Online' : 'Offline',
                     style: TextStyle(
-                      color: isOnline ? const Color(0xFF10B981) : const Color(0xFF7E8494),
+                      color: isOnline
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFF7E8494),
                       fontSize: 12,
                     ),
                   ),
                   onTap: () {
                     final userId = contact['userId'] as String;
-                    final roomId = ChatMessage.deriveRoomId(localUserId, userId);
+                    final roomId = ChatMessage.deriveRoomId(
+                      localUserId,
+                      userId,
+                    );
                     Navigator.push(
                       context,
                       MaterialPageRoute(

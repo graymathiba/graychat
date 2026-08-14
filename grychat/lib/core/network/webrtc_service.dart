@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+import '../../config/app_config.dart';
 import '../database/database_service.dart';
 import '../database/models.dart';
 import 'signaling_service.dart';
@@ -30,17 +31,6 @@ class WebRTCService {
 
   final StreamController<PeerConnectionStateUpdate> _connectionStateController =
       StreamController<PeerConnectionStateUpdate>.broadcast();
-
-  final Map<String, dynamic> _iceConfiguration = {
-    'iceServers': [
-      {
-        'urls': [
-          'stun:stun.l.google.com:19302',
-          'stun:stun1.l.google.com:19302',
-        ]
-      }
-    ]
-  };
 
   WebRTCService(this._signalingService, this._databaseService) {
     _initialize();
@@ -208,7 +198,7 @@ class WebRTCService {
       return _peerConnections[peerId]!;
     }
 
-    final pc = await createPeerConnection(_iceConfiguration);
+    final pc = await createPeerConnection(AppConfig.iceServers);
     _peerConnections[peerId] = pc;
 
     // Send gathered ICE candidates via Socket.io

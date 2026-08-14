@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/database/models.dart';
 import '../../core/providers/database_provider.dart';
 
@@ -233,13 +234,15 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
       return;
     }
 
-    // Prepare profile model
+    // Prepare profile model with current Firebase UID
+    final firebaseUser = FirebaseAuth.instance.currentUser;
     final profile = UserProfile(
       firstName: firstName,
       lastName: lastName,
       phoneNumber: widget.phoneNumber,
-      profilePicPath: _selectedLocalPath ?? _selectedAvatarUrl, // Store path/URL
+      profilePicPath: _selectedLocalPath ?? _selectedAvatarUrl,
       profilePicBase64: _base64Image,
+      userId: firebaseUser?.uid ?? '',
     );
 
     // If a preset avatar is chosen, we can also store a placeholder base64 or download it

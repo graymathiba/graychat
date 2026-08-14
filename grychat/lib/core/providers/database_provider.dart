@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../database/database_service.dart';
 import '../database/models.dart';
 
@@ -35,11 +36,26 @@ final dbStatsProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return dbService.getStats();
 });
 
-// User Profile provider
+// Current Firebase user ID (or empty for guests)
+final currentUserIdProvider = Provider<String>((ref) {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) return user.uid;
+  } catch (_) {}
+  return '';
+});
+
+// User Profile provider — scoped to the current Firebase user
 final userProfileProvider =
     StateNotifierProvider<UserProfileNotifier, UserProfile?>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
-  return UserProfileNotifier(dbService);
+  final userId = ref.watch(currentUserIdProvider);
+  final notifier = UserProfileNotifier(dbService, userId);
+  // React to auth changes: reload profile for new user
+  ref.listen(currentUserIdProvider, (String? prev, String next) {
+    notifier.onUserChanged(next);
+  });
+  return notifier;
 });
 
 class PeersNotifier extends StateNotifier<List<PeerModel>> {
@@ -225,23 +241,36 @@ class MessagesNotifier extends StateNotifier<List<MessageModel>> {
 
 class UserProfileNotifier extends StateNotifier<UserProfile?> {
   final DatabaseService _dbService;
+  String _currentUserId;
 
-  UserProfileNotifier(this._dbService) : super(null) {
+  UserProfileNotifier(this._dbService, this._currentUserId) : super(null) {
     _loadProfile();
   }
 
   void _loadProfile() {
     try {
-      final profile = _dbService.getUserProfile();
+      if (_currentUserId.isEmpty) {
+        print('[UserProfileNotifier] No user ID — skipping profile load');
+        state = null;
+        return;
+      }
+      final profile = _dbService.getUserProfile(_currentUserId);
       state = profile;
       if (profile != null) {
-        print('[UserProfileNotifier] Loaded profile: ${profile.firstName}');
+        print('[UserProfileNotifier] Loaded profile for user $_currentUserId: ${profile.firstName}');
       } else {
-        print('[UserProfileNotifier] No profile found');
+        print('[UserProfileNotifier] No profile found for user $_currentUserId');
       }
     } catch (e) {
       print('[UserProfileNotifier] ERROR loading profile: $e');
     }
+  }
+
+  /// Called when the Firebase auth user changes.
+  void onUserChanged(String userId) {
+    if (userId == _currentUserId) return;
+    _currentUserId = userId;
+    _loadProfile();
   }
 
   Future<void> saveProfile(UserProfile profile) async {
@@ -257,9 +286,13 @@ class UserProfileNotifier extends StateNotifier<UserProfile?> {
 
   Future<void> clearProfile() async {
     try {
-      await _dbService.profileBox.clear();
+      if (_currentUserId.isNotEmpty) {
+        await _dbService.profileBox.delete(_currentUserId);
+      } else {
+        await _dbService.profileBox.clear();
+      }
       state = null;
-      print('[UserProfileNotifier] Profile cleared');
+      print('[UserProfileNotifier] Profile cleared for user $_currentUserId');
     } catch (e) {
       print('[UserProfileNotifier] ERROR clearing profile: $e');
       rethrow;

@@ -32,7 +32,7 @@ class ChatMessage {
   final String? replyToSenderId;
 
   // ── Reactions ──────────────────────────────────────────────────────
-  /// Map<emoji, List<userId>> — e.g. { "👍": ["user1","user2"], "❤️": ["user3"] }
+  /// Reactions map — e.g. `{"👍": ["user1","user2"], "❤️": ["user3"]}`
   final Map<String, List<String>> reactions;
 
   // ── Group Chat ─────────────────────────────────────────────────────
@@ -95,9 +95,7 @@ class ChatMessage {
     final reactions = <String, List<String>>{};
     if (reactionsRaw != null) {
       for (final entry in reactionsRaw.entries) {
-        final users = (entry.value as List?)
-            ?.map((e) => e.toString())
-            .toList();
+        final users = (entry.value as List?)?.map((e) => e.toString()).toList();
         if (users != null && users.isNotEmpty) {
           reactions[entry.key] = users;
         }
@@ -223,8 +221,8 @@ class ChatMessage {
     final shouldRemove = action == 'remove'
         ? true
         : action == 'add'
-            ? false
-            : users.contains(userId);
+        ? false
+        : users.contains(userId);
 
     if (shouldRemove) {
       users.remove(userId);

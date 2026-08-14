@@ -1,4 +1,20 @@
 @echo off
+setlocal enabledelayedexpansion
+
+:: Build and run peer 2 with environment variables from .env
+set DART_DEFINES=
+if exist "%~dp0.env" (
+    for /f "usebackq tokens=1,2 delims==" %%a in ("%~dp0.env") do (
+        if not "%%a"=="" if not "%%a:~0,1"=="#" (
+            set "key=%%a"
+            set "val=%%b"
+            if not "!val!"=="" (
+                set "DART_DEFINES=!DART_DEFINES! --dart-define=%%a=%%b"
+            )
+        )
+    )
+)
+
+cd /d "%~dp0grychat"
 set APP_PROFILE=peer2
-cd /d "c:\Users\PC\GRYCHAT\grychat\build\windows\x64\runner\Debug"
-start "Grychat Peer 2" grychat.exe
+flutter run --debug%DART_DEFINES%

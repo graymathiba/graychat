@@ -9,8 +9,7 @@ class SignalingService {
   final StreamController<Map<String, dynamic>> _signalController =
       StreamController<Map<String, dynamic>>.broadcast();
 
-  SignalingService({required io.Socket socket, required this.localPeerId})
-      : _socket = socket {
+  SignalingService({required this._socket, required this.localPeerId}) {
     _setupListeners();
   }
 
@@ -20,7 +19,10 @@ class SignalingService {
   void _setupListeners() {
     _socket.onConnect((_) {
       _isConnected = true;
-      _signalController.add({'type': 'server_connection', 'data': {'connected': true}});
+      _signalController.add({
+        'type': 'server_connection',
+        'data': {'connected': true},
+      });
     });
 
     for (final type in ['offer', 'answer', 'ice_candidate']) {
@@ -33,7 +35,10 @@ class SignalingService {
 
     _socket.onDisconnect((_) {
       _isConnected = false;
-      _signalController.add({'type': 'server_connection', 'data': {'connected': false}});
+      _signalController.add({
+        'type': 'server_connection',
+        'data': {'connected': false},
+      });
     });
   }
 
@@ -58,11 +63,7 @@ class SignalingService {
   }
 
   void _sendPeerSignal(String type, String roomId, Map<String, dynamic> data) {
-    emit(type, {
-      'roomId': roomId,
-      'senderId': localPeerId,
-      'data': data,
-    });
+    emit(type, {'roomId': roomId, 'senderId': localPeerId, 'data': data});
   }
 
   void dispose() {

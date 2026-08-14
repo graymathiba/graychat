@@ -22,7 +22,7 @@ import '../models/chat_message.dart';
 ///   13: replyToMessageId (String?)
 ///   14: replyToContent (String?)
 ///   15: replyToSenderId (String?)
-///   16: reactions (Map<String, List<String>>)
+///   16: reactions (`Map<String, List<String>>`)
 ///   17: groupId (String?)
 ///   18: forwardedFrom (String?)
 ///   19: isFavorite (bool)

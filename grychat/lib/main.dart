@@ -42,13 +42,13 @@ void _mainInner() async {
   
   try {
     await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: 'REDACTED_GOOGLE_API_KEY',
-        authDomain: 'graychat-db6a0.firebaseapp.com',
-        projectId: 'graychat-db6a0',
-        storageBucket: 'graychat-db6a0.firebasestorage.app',
-        messagingSenderId: '842272015997',
-        appId: '1:842272015997:web:b6a04cea8511390f8c9314',
+      options: FirebaseOptions(
+        apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
+        authDomain: const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'),
+        projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
+        storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
+        messagingSenderId: const String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID'),
+        appId: const String.fromEnvironment('FIREBASE_APP_ID'),
       ),
     );
   } catch (e) {

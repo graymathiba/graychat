@@ -165,13 +165,36 @@ io.on('connection', (socket) => {
   });
 
   // ── WebRTC Signaling (direct socket routing) ──────────────────
-  for (const signalType of ['offer', 'answer', 'ice_candidate', 'reject', 'hangup']) {
+  // P2P data channel signaling (raw events)
+  for (const signalType of ['offer', 'answer', 'ice_candidate']) {
     socket.on(signalType, (data: any) => {
       const senderId = socket.data.registeredUserId || userId;
       const targetId = data?.targetId as string;
       if (!targetId) return;
 
-      // Find target user's socket(s) and forward directly
+      let delivered = false;
+      for (const recipientSocket of io.sockets.sockets.values()) {
+        const registeredId = recipientSocket.data.registeredUserId;
+        if (registeredId === targetId) {
+          recipientSocket.emit(signalType, {
+            senderId,
+            targetId,
+            data: data.data,
+          });
+          delivered = true;
+        }
+      }
+      console.log(`[Signal] ${signalType} from ${senderId} → ${targetId} (delivered: ${delivered})`);
+    });
+  }
+
+  // Audio/video call signaling (prefixed to avoid collision with P2P data channel signaling)
+  for (const signalType of ['call:offer', 'call:answer', 'call:ice_candidate', 'call:reject', 'call:hangup']) {
+    socket.on(signalType, (data: any) => {
+      const senderId = socket.data.registeredUserId || userId;
+      const targetId = data?.targetId as string;
+      if (!targetId) return;
+
       let delivered = false;
       for (const recipientSocket of io.sockets.sockets.values()) {
         const registeredId = recipientSocket.data.registeredUserId;
@@ -196,7 +219,7 @@ io.on('connection', (socket) => {
       // Derive correct roomId from sorted user IDs (data isolation)
       const senderId = (socket.data.registeredUserId || data.senderId) as string;
       const receiverId = data.receiverId as string;
-      if (!senderId || !receiverId || senderId === receiverId) {
+      if (!senderId || !receiverId) {
         throw new Error('Invalid message participants');
       }
       const correctRoomId = deriveRoomId(senderId, receiverId);
@@ -224,6 +247,27 @@ io.on('connection', (socket) => {
         timestamp: data.timestamp,
         serverTimestamp,
       };
+
+      // Self-chat (Saved Messages): deliver back to the sender's own sockets
+      if (senderId === receiverId) {
+        for (const recipientSocket of io.sockets.sockets.values()) {
+          const registeredId =
+            recipientSocket.data.registeredUserId || recipientSocket.data.user?.sub;
+          if (registeredId !== senderId) continue;
+          if (!recipientSocket.rooms.has(correctRoomId)) {
+            recipientSocket.join(correctRoomId);
+          }
+          if (recipientSocket.id !== socket.id) {
+            recipientSocket.emit('newMessage', message);
+          }
+        }
+        socket.emit('messageAck', {
+          id: data.id,
+          status: 'sent',
+          serverTimestamp,
+        });
+        return;
+      }
 
       // Route to the conversation room. The recipient is auto-added below
       // only when they are not already in the room, preventing duplicates.

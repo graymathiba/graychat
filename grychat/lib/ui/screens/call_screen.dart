@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../core/network/call_service.dart';
 import '../../core/providers/call_provider.dart';
+import '../../core/providers/database_provider.dart';
 
 class CallScreen extends ConsumerStatefulWidget {
   final String peerId;
@@ -38,7 +39,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
       // Direct stream subscription — more reliable than ref.listen for pop
       _callSub = callService.callInfoStream.listen((info) {
         if (!mounted) return;
-        if (info == null || info.state == CallState.idle || info.state == CallState.ended) {
+        if (info == null ||
+            info.state == CallState.idle ||
+            info.state == CallState.ended) {
           Navigator.of(context).pop();
         }
       });
@@ -52,11 +55,14 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         if (mounted) setState(() {});
       });
 
-      callService.startCall(
-        widget.peerId,
-        widget.peerName,
-        widget.callType,
-      );
+      final profile = ref.read(userProfileProvider);
+      if (profile != null && profile.firstName.isNotEmpty) {
+        callService.localDisplayName = profile.lastName.isNotEmpty
+            ? '${profile.firstName} ${profile.lastName}'
+            : profile.firstName;
+      }
+
+      callService.startCall(widget.peerId, widget.peerName, widget.callType);
     });
   }
 
@@ -88,7 +94,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           loading: () => const Center(
             child: CircularProgressIndicator(color: Colors.white),
           ),
-          error: (_, __) => const Center(
+          error: (_, _) => const Center(
             child: Text('Call error', style: TextStyle(color: Colors.white)),
           ),
         ),
@@ -112,7 +118,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   children: [
                     RTCVideoView(
                       callService.remoteRenderer,
-                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      objectFit:
+                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
                     // Local video pip
                     Positioned(
@@ -127,7 +134,8 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                           child: RTCVideoView(
                             callService.localRenderer,
                             mirror: true,
-                            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                            objectFit: RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover,
                           ),
                         ),
                       ),
@@ -170,7 +178,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       Text(
                         statusText,
                         style: TextStyle(
-                          color: isActive ? const Color(0xFF10B981) : Colors.white54,
+                          color: isActive
+                              ? const Color(0xFF10B981)
+                              : Colors.white54,
                           fontSize: 14,
                         ),
                       ),
@@ -276,10 +286,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           Container(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             child: Icon(icon, color: Colors.white, size: 26),
           ),
           const SizedBox(height: 6),
