@@ -22,6 +22,7 @@ import 'ui/screens/forgot_password_screen.dart';
 import 'package:media_kit/media_kit.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
+bool firebaseAvailable = false;
 
 File get _crashLog => File('${Directory.systemTemp.path}/grychat_crash_${Platform.environment['APP_PROFILE'] ?? 'main'}.log');
 
@@ -68,6 +69,7 @@ void _mainInner() async {
         ),
       );
       print('[Init] step: firebase done');
+      firebaseAvailable = true;
     } catch (e) {
       print('[Init] Firebase init failed (continue as guest): $e');
     }
@@ -217,6 +219,11 @@ class _MyAppState extends ConsumerState<MyApp> {
       },
       home: dbInitState.when(
         data: (_) {
+          if (!firebaseAvailable) {
+            print('[Auth] Firebase not available — bypassing login');
+            ref.read(signalingServiceProvider);
+            return const HomeScreen();
+          }
           return Consumer(builder: (context, ref, _) {
             final authState = ref.watch(currentUserProvider);
             return authState.when(
