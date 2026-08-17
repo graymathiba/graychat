@@ -41,7 +41,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _showNewChatDialog() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -121,24 +121,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: Color(0xFF171B24),
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: Color(0xFF7E8494),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                         fontSize: 13,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Color(0xFF7E8494)),
+              Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
             ],
           ),
         ),
@@ -158,14 +158,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              title: const Text(
+              title: Text(
                 'New Chat',
                 style: TextStyle(
-                  color: Color(0xFF171B24),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                 ),
@@ -174,17 +174,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Enter a friend\'s invite code (e.g. GRY-4A2F)',
-                    style: TextStyle(color: Color(0xFF7E8494), fontSize: 13),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
                   ),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _shortCodeController,
                     autofocus: true,
                     textCapitalization: TextCapitalization.characters,
-                    style: const TextStyle(
-                      color: Color(0xFF171B24),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 4,
@@ -270,15 +270,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   Text(
                                     resolvedUser!['displayName'] as String? ??
                                         'Unknown',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF171B24),
+                                      color: Theme.of(context).colorScheme.onSurface,
                                     ),
                                   ),
                                   Text(
                                     resolvedUser!['shortCode'] as String? ?? '',
-                                    style: const TextStyle(
-                                      color: Color(0xFF7E8494),
+                                    style: TextStyle(
+                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                       fontSize: 12,
                                     ),
                                   ),
@@ -434,14 +434,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             }
 
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              title: const Text(
+              title: Text(
                 'Create Group',
                 style: TextStyle(
-                  color: Color(0xFF171B24),
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -558,7 +558,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -576,12 +576,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
+                  Text(
                     'Edit Profile',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF171B24),
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -805,7 +805,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }).toList();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1B4EBA),
         elevation: 0,
@@ -879,9 +879,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: InkWell(
                           onTap: () {
                             Navigator.pop(context);
-                            if (userProfile != null) {
-                              _showSettingsModal(userProfile);
-                            }
+                            _showSettingsModal(
+                              userProfile ?? UserProfile(
+                                firstName: '',
+                                lastName: '',
+                                phoneNumber: '',
+                                userId: localUserId,
+                              ),
+                            );
                           },
                           borderRadius: BorderRadius.circular(12),
                           child: Padding(
@@ -1000,9 +1005,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 'Settings',
                                 () {
                                   Navigator.pop(context);
-                                  if (userProfile != null) {
-                                    _showSettingsModal(userProfile);
-                                  }
+                                  _showSettingsModal(
+                                    userProfile ?? UserProfile(
+                                      firstName: '',
+                                      lastName: '',
+                                      phoneNumber: '',
+                                      userId: localUserId,
+                                    ),
+                                  );
                                 },
                               ),
                               _buildDarkModeToggle(),
@@ -1112,10 +1122,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           color: const Color(0xFF1B4EBA).withValues(alpha: 0.2),
                         ),
                         const SizedBox(height: 16),
-                        const Text(
+                        Text(
                           'No conversations yet',
                           style: TextStyle(
-                            color: Color(0xFF7E8494),
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                             fontSize: 14,
                           ),
                         ),
