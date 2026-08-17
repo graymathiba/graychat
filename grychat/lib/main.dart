@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 import 'config/app_config.dart';
 import 'core/database/hive_adapters.dart';
 import 'core/database/chat_message_adapter.dart';
@@ -37,29 +36,44 @@ void main() async {
 }
 
 void _mainInner() async {
+  print('[Init] step: binding');
   WidgetsFlutterBinding.ensureInitialized();
+  print('[Init] step: media_kit');
   MediaKit.ensureInitialized();
-  
-  try {
-    await Firebase.initializeApp(
-      options: FirebaseOptions(
-        apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
-        authDomain: const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'),
-        projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
-        storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
-        messagingSenderId: const String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID'),
-        appId: const String.fromEnvironment('FIREBASE_APP_ID'),
-      ),
-    );
-  } catch (e) {
-    print('[Init] Firebase init failed (continue as guest): $e');
+  print('[Init] step: media_kit done');
+
+  final skipFirebase = const String.fromEnvironment('SKIP_FIREBASE', defaultValue: '') == 'true';
+  final firebaseAppId = const String.fromEnvironment('FIREBASE_APP_ID');
+  if (skipFirebase) {
+    print('[Init] SKIP_FIREBASE=true — skipping Firebase init');
+  } else if (firebaseAppId.contains(':web:')) {
+    print('[Init] Firebase app ID is web-only — skipping Firebase init');
+  } else {
+    try {
+      print('[Init] step: firebase');
+      await Firebase.initializeApp(
+        options: FirebaseOptions(
+          apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
+          authDomain: const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'),
+          projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
+          storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
+          messagingSenderId: const String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID'),
+          appId: firebaseAppId,
+        ),
+      );
+      print('[Init] step: firebase done');
+    } catch (e) {
+      print('[Init] Firebase init failed (continue as guest): $e');
+    }
   }
 
   try {
+    print('[Init] step: supabase');
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabaseAnonKey,
     );
+    print('[Init] step: supabase done');
   } catch (e) {
     print('[Init] Supabase init failed (continue as guest): $e');
   }
@@ -70,16 +84,7 @@ void _mainInner() async {
   final rawProfile = (envProfile != null && envProfile.trim().isNotEmpty) 
       ? envProfile.trim() 
       : (dartDefineProfile.trim().isNotEmpty ? dartDefineProfile.trim() : 'main_peer');
-      
-  final subDir = rawProfile == 'main_peer' ? null : rawProfile;
-  if (subDir != null) {
-    final docsDir = await getApplicationDocumentsDirectory();
-    final targetDir = Directory('${docsDir.path}/$subDir');
-    if (!await targetDir.exists()) {
-      await targetDir.create(recursive: true);
-    }
-  }
-  await Hive.initFlutter(subDir);
+
   Hive.registerAdapter(PeerModelAdapter());
   Hive.registerAdapter(MessageModelAdapter());
   Hive.registerAdapter(UserProfileAdapter());
@@ -126,7 +131,9 @@ void _mainInner() async {
     );
   };
   runApp(ProviderScope(
-    observers: [],
+    overrides: [
+      storageProfileProvider.overrideWithValue(rawProfile),
+    ],
     child: const MyApp(),
   ));
 }

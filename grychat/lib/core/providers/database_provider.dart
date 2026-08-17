@@ -8,10 +8,15 @@ final databaseServiceProvider = Provider<DatabaseService>((ref) {
   return DatabaseService();
 });
 
+// Storage profile for this instance ('main_peer', 'peer1', 'peer2', ...).
+// Overridden at app startup from APP_PROFILE / dart-define.
+final storageProfileProvider = Provider<String>((ref) => 'main_peer');
+
 // Initialize database boxes on app startup
 final databaseInitProvider = FutureProvider<void>((ref) async {
   final dbService = ref.watch(databaseServiceProvider);
-  await dbService.initializeBoxes();
+  final profile = ref.watch(storageProfileProvider);
+  await dbService.initializeBoxes(profileName: profile);
 });
 
 // Get all peers (reactive)

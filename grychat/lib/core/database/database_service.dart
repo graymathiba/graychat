@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import 'models.dart';
 import '../models/chat_message.dart';
 import '../models/group.dart';
@@ -30,42 +31,114 @@ class DatabaseService {
   Box<String> get settingsBox => _settingsBox;
   Box<Group> get groupsBox => _groupsBox;
 
+  /// Storage directory base that was resolved for this instance.
+  String? _storageBasePath;
+
+  /// Storage directory actually in use after any lock-driven failover.
+  String? _activeStoragePath;
+
+  String? get activeStoragePath => _activeStoragePath;
+
   /// Initialize Hive boxes for peers, messages, chat messages, profile, and settings.
+  ///
+  /// Storage lives under `<Documents>/<profile>` so multiple instances with
+  /// distinct profiles never share files. On a persistent file-lock conflict
+  /// (another instance holding the same directory), this fails over to a
+  /// unique per-process directory instead of crashing.
+  ///
   /// Retries on file-lock errors, deletes and recreates on corruption.
-  Future<void> initializeBoxes() async {
+  Future<void> initializeBoxes({String? profileName}) async {
+    _storageBasePath = await _resolveStorageBase(profileName);
+    _activeStoragePath = _storageBasePath;
+    await _ensureDirectory(_activeStoragePath!);
+
     const maxRetries = 5;
     var attempt = 0;
+    var lastLockError = '';
 
     while (attempt < maxRetries) {
       attempt++;
       try {
-        _peersBox = await _openBoxSafe<PeerModel>(peersBoxName);
-        _messagesBox = await _openBoxSafe<MessageModel>(messagesBoxName);
-        _chatMessagesBox = await _openBoxSafe<ChatMessage>(chatMessagesBoxName);
-        _profileBox = await _openBoxSafe<UserProfile>(profileBoxName);
-        _settingsBox = await _openBoxSafe<String>(settingsBoxName);
-        _groupsBox = await _openBoxSafe<Group>(groupsBoxName);
+        _peersBox = await _openBoxSafe<PeerModel>(peersBoxName, path: _activeStoragePath);
+        _messagesBox = await _openBoxSafe<MessageModel>(messagesBoxName, path: _activeStoragePath);
+        _chatMessagesBox = await _openBoxSafe<ChatMessage>(chatMessagesBoxName, path: _activeStoragePath);
+        _profileBox = await _openBoxSafe<UserProfile>(profileBoxName, path: _activeStoragePath);
+        _settingsBox = await _openBoxSafe<String>(settingsBoxName, path: _activeStoragePath);
+        _groupsBox = await _openBoxSafe<Group>(groupsBoxName, path: _activeStoragePath);
         _initialized = true;
-        print('[DatabaseService] Boxes initialized successfully');
+        print('[DatabaseService] Boxes initialized in $_activeStoragePath');
         return;
-      } on FileSystemException catch (e) {
-        // File lock (errno 32 on Windows) — close everything, wait, and retry
-        print('[DatabaseService] File lock on attempt $attempt: $e');
+      } catch (e) {
+        lastLockError = e.toString();
+        print('[DatabaseService] Box init error on attempt $attempt: $e');
         await _closeAllOpenBoxes();
         if (attempt < maxRetries) {
           final delay = Duration(seconds: attempt);
           print('[DatabaseService] Retrying in ${delay.inSeconds}s...');
           await Future.delayed(delay);
         }
-      } catch (e) {
-        print('[DatabaseService] FATAL error initializing boxes: $e');
-        rethrow;
       }
     }
+
+    // Persistent lock: the directory is held by another running instance.
+    // Fail over to a unique isolated directory so this instance can start
+    // instead of showing the fatal "Failed to initialize database" error.
+    print('[DatabaseService] Persistent file lock ($lastLockError). '
+        'Failing over to isolated per-process storage.');
+    await _failOverToIsolatedStorage();
+    attempt = 0;
+    while (attempt < maxRetries) {
+      attempt++;
+      try {
+        _peersBox = await _openBoxSafe<PeerModel>(peersBoxName, path: _activeStoragePath);
+        _messagesBox = await _openBoxSafe<MessageModel>(messagesBoxName, path: _activeStoragePath);
+        _chatMessagesBox = await _openBoxSafe<ChatMessage>(chatMessagesBoxName, path: _activeStoragePath);
+        _profileBox = await _openBoxSafe<UserProfile>(profileBoxName, path: _activeStoragePath);
+        _settingsBox = await _openBoxSafe<String>(settingsBoxName, path: _activeStoragePath);
+        _groupsBox = await _openBoxSafe<Group>(groupsBoxName, path: _activeStoragePath);
+        _initialized = true;
+        print('[DatabaseService] Boxes initialized in isolated storage '
+            '$_activeStoragePath');
+        return;
+      } on FileSystemException catch (e) {
+        print('[DatabaseService] File lock on isolated attempt $attempt: $e');
+        await _closeAllOpenBoxes();
+        if (attempt < maxRetries) {
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+        }
+      }
+    }
+
     throw Exception(
       'Failed to initialize database after $maxRetries attempts. '
       'Close other GryChat instances and try again.',
     );
+  }
+
+  /// Resolve the per-profile storage directory under the Documents folder.
+  Future<String> _resolveStorageBase(String? profileName) async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final profile = (profileName ?? '').trim();
+    if (profile.isEmpty || profile == 'main_peer') {
+      return docsDir.path;
+    }
+    return '${docsDir.path}${Platform.pathSeparator}$profile';
+  }
+
+  Future<void> _ensureDirectory(String path) async {
+    final dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+  }
+
+  /// Switch Hive to a unique per-process directory so a locked profile
+  /// directory cannot block this instance from starting.
+  Future<void> _failOverToIsolatedStorage() async {
+    final isolatedPath =
+        '${_storageBasePath}_isolated_${DateTime.now().millisecondsSinceEpoch}_$pid';
+    _activeStoragePath = isolatedPath;
+    await _ensureDirectory(isolatedPath);
   }
 
   /// Close all boxes that are currently open.
@@ -88,24 +161,57 @@ class DatabaseService {
   }
 
   /// Open a Hive box with smart error recovery.
-  /// - File lock (PathException): lets the caller retry.
-  /// - Corruption (HiveError / unknown typeId): deletes and recreates.
-  Future<Box<T>> _openBoxSafe<T>(String name) async {
+  /// - File lock (FileSystemException): lets the caller retry/fail over.
+  /// - Corruption (HiveError / unknown typeId): quarantines the file and
+  ///   recreates the box instead of crashing.
+  Future<Box<T>> _openBoxSafe<T>(String name, {String? path}) async {
     try {
-      return await Hive.openBox<T>(name);
+      return await Hive.openBox<T>(name, path: path);
     } on FileSystemException {
-      // Re-throw file-lock errors so initializeBoxes can retry
+      // Re-throw file-lock errors so initializeBoxes can retry/fail over
       rethrow;
     } catch (e) {
-      // Corruption or unknown typeId — delete and recreate
+      // Corruption or unknown typeId — quarantine the file and recreate
       print('[DatabaseService] Box "$name" corrupted, recreating: $e');
       if (Hive.isBoxOpen(name)) {
         try {
           await Hive.box<T>(name).close();
         } catch (_) {}
       }
-      await Hive.deleteBoxFromDisk(name);
-      return await Hive.openBox<T>(name);
+      try {
+        await Hive.deleteBoxFromDisk(name, path: path);
+        return await Hive.openBox<T>(name, path: path);
+      } on FileSystemException {
+        // File is locked by another instance while we try to fix corruption —
+        // let initializeBoxes retry and eventually fail over.
+        rethrow;
+      } catch (_) {
+        // Delete or recreate still failed — quarantine the on-disk file
+        // and open a fresh box.
+        print('[DatabaseService] Box "$name" recreate failed; '
+            'quarantining file...');
+        await _quarantineBoxFile(name, path: path);
+        return await Hive.openBox<T>(name, path: path);
+      }
+    }
+  }
+
+  /// Rename a corrupt Hive file (and its lock file, if present) to a
+  /// `.bak.<timestamp>` sibling so the data is preserved and a fresh box can
+  /// be opened without deleting anything.
+  Future<void> _quarantineBoxFile(String name, {String? path}) async {
+    final dir = path ?? _activeStoragePath;
+    if (dir == null) return;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final suffix = '.bak.$stamp';
+    for (final ext in ['hive', 'lock']) {
+      final file = File('$dir${Platform.pathSeparator}$name.$ext');
+      try {
+        if (await file.exists()) {
+          await file.rename('$dir${Platform.pathSeparator}$name.$ext$suffix');
+          print('[DatabaseService] Quarantined: $file');
+        }
+      } catch (_) {}
     }
   }
 
