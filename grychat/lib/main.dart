@@ -178,7 +178,11 @@ class _MyAppState extends ConsumerState<MyApp> {
             ),
           ),
         );
-      } else if (!isRinging && wasRinging && _incomingCallShowing) {
+      } else if (!isRinging && wasRinging && _incomingCallShowing &&
+          info?.state != CallState.connecting) {
+        // Pop if caller hung up or call rejected — but NOT if transitioning
+        // to connecting (accept), because IncomingCallPage handles its own
+        // pushReplacement to CallScreen.
         _incomingCallShowing = false;
         if (navigatorKey.currentState?.canPop() == true) {
           navigatorKey.currentState?.pop();
@@ -261,7 +265,7 @@ class IncomingCallPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.listen<AsyncValue<CallInfo?>>(callInfoProvider, (prev, next) {
       final info = next.valueOrNull;
-      if (info == null || (info.state != CallState.incomingRinging && info.state != CallState.connecting)) {
+      if (info == null || info.state == CallState.idle || info.state == CallState.ended) {
         onDismissed();
         if (context.mounted) Navigator.of(context).pop();
       }

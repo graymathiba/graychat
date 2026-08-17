@@ -29,6 +29,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   StreamSubscription<void>? _videoSub;
   StreamSubscription<CallInfo?>? _callSub;
   Timer? _refreshTimer;
+  bool _isPopping = false;
 
   @override
   void initState() {
@@ -38,11 +39,17 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       // Direct stream subscription — more reliable than ref.listen for pop
       _callSub = callService.callInfoStream.listen((info) {
-        if (!mounted) return;
+        if (!mounted || _isPopping) return;
         if (info == null ||
             info.state == CallState.idle ||
             info.state == CallState.ended) {
-          Navigator.of(context).pop();
+          _isPopping = true;
+          _refreshTimer?.cancel();
+          _videoSub?.cancel();
+          _callSub?.cancel();
+          if (mounted && Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
         }
       });
 
@@ -52,7 +59,15 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
       // Periodic refresh to ensure video views update when streams attach
       _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-        if (mounted) setState(() {});
+        if (mounted && !_isPopping) {
+          final callService = ref.read(callServiceProvider);
+          if (callService.state == CallState.active ||
+              callService.state == CallState.connecting) {
+            setState(() {});
+          } else {
+            _refreshTimer?.cancel();
+          }
+        }
       });
 
       final profile = ref.read(userProfileProvider);

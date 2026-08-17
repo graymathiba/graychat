@@ -95,6 +95,7 @@ class CallService {
     final tag = isIncoming ? 'incoming' : 'outgoing';
 
     pc.onTrack = (event) {
+      if (_state == CallState.idle || _state == CallState.ended) return;
       AppLogger.success('CallService', 'onTrack ($tag)', {
         'streams': event.streams.length,
         'trackKind': event.track.kind,
@@ -371,27 +372,47 @@ class CallService {
   }
 
   void _cleanup() {
-    _durationTimer?.cancel();
-    _durationTimer = null;
-    _callDuration = Duration.zero;
+    try {
+      _durationTimer?.cancel();
+      _durationTimer = null;
+      _callDuration = Duration.zero;
 
-    _localStream?.getTracks().forEach((track) => track.stop());
-    _localStream = null;
-    _remoteStream = null;
+      // 1. Detach streams from renderers first (stops the video surface)
+      try {
+        _localRenderer.srcObject = null;
+        _remoteRenderer.srcObject = null;
+      } catch (_) {}
 
-    _peerConnection?.close();
-    _peerConnection = null;
+      // 2. Stop local tracks
+      try {
+        _localStream?.getTracks().forEach((track) {
+          try { track.stop(); } catch (_) {}
+        });
+      } catch (_) {}
 
-    _localRenderer.srcObject = null;
-    _remoteRenderer.srcObject = null;
+      // 3. Close peer connection
+      try { _peerConnection?.close(); } catch (_) {}
 
-    _remotePeerId = '';
-    _remotePeerName = '';
+      // 4. Null all references
+      _localStream = null;
+      _remoteStream = null;
+      _peerConnection = null;
+      _remotePeerId = '';
+      _remotePeerName = '';
+    } catch (e) {
+      AppLogger.error('CallService', 'Error during cleanup', e);
+    }
   }
 
   void dispose() {
     _cleanup();
     _durationTimer?.cancel();
+    try {
+      _localRenderer.dispose();
+      _remoteRenderer.dispose();
+    } catch (_) {}
+    _localRendererInitialized = false;
+    _remoteRendererInitialized = false;
     _callInfoController.close();
     _videoStateController.close();
   }
