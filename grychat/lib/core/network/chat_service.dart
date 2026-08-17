@@ -39,6 +39,8 @@ class ChatService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _groupController = StreamController<Map<String, dynamic>>.broadcast();
   final _forwardedMessageController = StreamController<ChatMessage>.broadcast();
+  final _errorController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   ChatService({
     required this.serverUrl,
@@ -61,6 +63,7 @@ class ChatService {
   Stream<Map<String, dynamic>> get groupStream => _groupController.stream;
   Stream<ChatMessage> get forwardedMessageStream =>
       _forwardedMessageController.stream;
+  Stream<Map<String, dynamic>> get errorStream => _errorController.stream;
 
   bool get isConnected {
     try {
@@ -183,6 +186,17 @@ class ChatService {
           serverTimestamp: serverTs,
         );
         _ackController.add(Map<String, dynamic>.from(data as Map));
+      });
+
+      // ── Message error events ───────────────────────────────────
+      _socket.on('messageError', (data) {
+        print('[ChatService] ✖ Message error: $data');
+        final messageData = Map<String, dynamic>.from(data as Map);
+        final messageId = messageData['id'] as String?;
+        if (messageId != null) {
+          databaseService?.updateChatMessageStatus(messageId, 'failed');
+        }
+        _errorController.add(messageData);
       });
 
       // ── Typing events ─────────────────────────────────────────
@@ -373,13 +387,14 @@ class ChatService {
     String? groupId,
   }) {
     if (!isConnected) return;
-    _socket.emit('reaction', {
+    final data = <String, dynamic>{
       'targetId': targetId,
       'messageId': messageId,
       'emoji': emoji,
       'action': action,
-      'groupId': ?groupId,
-    });
+    };
+    if (groupId != null) data['groupId'] = groupId;
+    _socket.emit('reaction', data);
   }
 
   // ─── Group Management ────────────────────────────────────────────

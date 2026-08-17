@@ -235,12 +235,23 @@ final typingStatusProvider =
 
 class TypingStatusNotifier extends StateNotifier<Map<String, bool>> {
   late final StreamSubscription _sub;
+  final Map<String, Timer> _timers = {};
 
   TypingStatusNotifier(ChatService chatService, String roomId) : super({}) {
     _sub = chatService.typingStream.listen((data) {
       if (data['roomId'] == roomId) {
         final userId = data['userId'] as String;
         final isTyping = data['isTyping'] as bool;
+
+        _timers[userId]?.cancel();
+
+        if (isTyping) {
+          _timers[userId] = Timer(const Duration(seconds: 5), () {
+            state = {...state, userId: false};
+            _timers.remove(userId);
+          });
+        }
+
         state = {...state, userId: isTyping};
       }
     });
@@ -249,6 +260,10 @@ class TypingStatusNotifier extends StateNotifier<Map<String, bool>> {
   @override
   void dispose() {
     _sub.cancel();
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
     super.dispose();
   }
 }
@@ -275,6 +290,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
   late final StreamSubscription _ackSub;
   late final StreamSubscription _readReceiptSub;
   late final StreamSubscription _reactionSub;
+  late final StreamSubscription _errorSub;
 
   ChatMessagesNotifier(
     this._dbService,
@@ -378,6 +394,19 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
           return msg;
         }).toList();
       }
+    });
+
+    _errorSub = _chatService.errorStream.listen((data) {
+      final messageId = data['id'] as String?;
+      if (messageId == null) return;
+      AppLogger.warn('ChatMessages', 'Message error received', messageId);
+      // ChatService already updated dbService to 'failed'
+      state = state.map((msg) {
+        if (msg.id == messageId && msg.status != 'failed') {
+          return msg.copyWith(status: 'failed');
+        }
+        return msg;
+      }).toList();
     });
   }
 
@@ -518,6 +547,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     _ackSub.cancel();
     _readReceiptSub.cancel();
     _reactionSub.cancel();
+    _errorSub.cancel();
     super.dispose();
   }
 }
