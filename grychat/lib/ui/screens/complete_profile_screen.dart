@@ -235,14 +235,17 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
     }
 
     // Prepare profile model with current Firebase UID
-    final firebaseUser = FirebaseAuth.instance.currentUser;
+    String firebaseUserId = '';
+    try {
+      firebaseUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
+    } catch (_) {}
     final profile = UserProfile(
       firstName: firstName,
       lastName: lastName,
       phoneNumber: widget.phoneNumber,
       profilePicPath: _selectedLocalPath ?? _selectedAvatarUrl,
       profilePicBase64: _base64Image,
-      userId: firebaseUser?.uid ?? '',
+      userId: firebaseUserId,
     );
 
     // If a preset avatar is chosen, we can also store a placeholder base64 or download it

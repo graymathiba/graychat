@@ -252,7 +252,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         username: username,
       );
 
-      final firebaseUser = FirebaseAuth.instance.currentUser;
+      final firebaseUser = authService.currentUser;
       if (firebaseUser != null) {
         final profile = UserProfile(
           firstName: firstName,

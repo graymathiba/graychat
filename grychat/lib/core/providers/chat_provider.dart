@@ -13,7 +13,12 @@ import 'database_provider.dart';
 
 // ─── Firebase Auth State ──────────────────────────────────────────
 final currentUserProvider = StreamProvider<User?>((ref) {
-  return FirebaseAuth.instance.authStateChanges();
+  try {
+    return FirebaseAuth.instance.authStateChanges();
+  } catch (_) {
+    // Firebase not initialized — return empty stream
+    return Stream<User?>.empty();
+  }
 });
 
 // ─── Stable User ID ────────────────────────────────────────────────

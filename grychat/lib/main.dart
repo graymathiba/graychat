@@ -26,6 +26,12 @@ final navigatorKey = GlobalKey<NavigatorState>();
 File get _crashLog => File('${Directory.systemTemp.path}/grychat_crash_${Platform.environment['APP_PROFILE'] ?? 'main'}.log');
 
 void _logCrash(Object error, StackTrace stack) {
+  // Suppress known transient errors during multi-instance failover
+  if (error.toString().contains('PathAccessException') ||
+      error.toString().contains('errno = 33') ||
+      error.toString().contains('errno = 32')) {
+    return;
+  }
   final msg = '[${DateTime.now()}] CRASH: $error\n$stack\n---\n';
   try { _crashLog.writeAsStringSync(msg, mode: FileMode.append); } catch (_) {}
   print('CRASH LOGGED: $error');

@@ -1,22 +1,35 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthService {
-  final _auth = FirebaseAuth.instance;
+  FirebaseAuth? get _auth {
+    try {
+      return FirebaseAuth.instance;
+    } catch (_) {
+      return null;
+    }
+  }
 
-  User? get currentUser => _auth.currentUser;
+  User? get currentUser => _auth?.currentUser;
 
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  Stream<User?> get authStateChanges {
+    final auth = _auth;
+    if (auth == null) return Stream<User?>.empty();
+    return auth.authStateChanges();
+  }
+
+  bool get isAvailable => _auth != null;
 
   Future<UserCredential> signUp({
     required String email,
     required String password,
     required String username,
   }) async {
-    final cred = await _auth.createUserWithEmailAndPassword(
+    final auth = _auth;
+    if (auth == null) throw Exception('Firebase Auth not available');
+    final cred = await auth.createUserWithEmailAndPassword(
       email: email,
       password: password,
     );
-    // Update display name with the chosen username
     await cred.user?.updateDisplayName(username);
     return cred;
   }
@@ -25,26 +38,31 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    return _auth.signInWithEmailAndPassword(
+    final auth = _auth;
+    if (auth == null) throw Exception('Firebase Auth not available');
+    return auth.signInWithEmailAndPassword(
       email: email,
       password: password,
     );
   }
 
   Future<void> signOut() async {
-    await _auth.signOut();
+    final auth = _auth;
+    if (auth != null) await auth.signOut();
   }
 
   Future<void> resetPassword(String email) async {
-    await _auth.sendPasswordResetEmail(email: email);
+    final auth = _auth;
+    if (auth == null) throw Exception('Firebase Auth not available');
+    await auth.sendPasswordResetEmail(email: email);
   }
 
   Future<void> updatePassword(String newPassword) async {
-    await _auth.currentUser?.updatePassword(newPassword);
+    await _auth?.currentUser?.updatePassword(newPassword);
   }
 
   String? getUsername() {
-    return _auth.currentUser?.displayName;
+    return _auth?.currentUser?.displayName;
   }
 }
 
