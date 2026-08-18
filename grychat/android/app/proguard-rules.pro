@@ -17,3 +17,8 @@
 -keep class io.hive.** { *; }
 -keep class com.google.gson.** { *; }
 -keepclassmembers class * extends io.hive.adapters.** { *; }
+
+# Suppress missing Play Core classes (not needed for non-Play Store builds)
+-dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
+-dontwarn com.google.android.play.core.splitinstall.**
+-dontwarn com.google.android.play.core.tasks.**
