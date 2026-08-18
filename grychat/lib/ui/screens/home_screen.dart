@@ -14,6 +14,7 @@ import '../../core/providers/database_provider.dart';
 import '../../core/providers/chat_provider.dart';
 import '../../core/network/auth_service.dart';
 import 'chat_screen.dart';
+import 'group_chat_screen.dart';
 import 'contacts_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -516,6 +517,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           final groupId = const Uuid().v4();
                           final groupName = groupNameController.text.trim();
                           final memberIds = selectedMemberIds.toList();
+                          
+                          final newGroup = Group(
+                            id: groupId,
+                            name: groupName,
+                            creatorId: localUserId,
+                            memberIds: [localUserId, ...memberIds],
+                            createdAt: DateTime.now(),
+                          );
+                          
                           ref
                               .read(groupsProvider.notifier)
                               .createGroup(
@@ -524,19 +534,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 memberIds: memberIds,
                               );
                           final dbService = ref.read(databaseServiceProvider);
-                          dbService.addGroup(
-                            Group(
-                              id: groupId,
-                              name: groupName,
-                              creatorId: localUserId,
-                              memberIds: [localUserId, ...memberIds],
-                              createdAt: DateTime.now(),
-                            ),
-                          );
+                          dbService.addGroup(newGroup);
                           Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Group "$groupName" created'),
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => GroupChatScreen(group: newGroup),
                             ),
                           );
                         },
@@ -781,6 +784,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final userProfile = ref.watch(userProfileProvider);
     final presenceMap = ref.watch(userPresenceProvider);
     final peers = ref.watch(peersProvider);
+    final groups = ref.watch(groupsProvider);
 
     final userName = userProfile != null
         ? '${userProfile.firstName} ${userProfile.lastName}'
@@ -802,6 +806,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return peerName.toLowerCase().contains(query) ||
           lastMsg.content.toLowerCase().contains(query) ||
           peerId.toLowerCase().contains(query);
+    }).toList();
+
+    // Filter groups based on search query
+    final filteredGroups = groups.where((group) {
+      if (_searchQuery.isEmpty) return true;
+      return group.name.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
     return Scaffold(
@@ -1111,7 +1121,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           Expanded(
-            child: filteredConversations.isEmpty
+            child: filteredConversations.isEmpty && filteredGroups.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -1145,14 +1155,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    itemCount: filteredConversations.length,
+                    itemCount: filteredGroups.length + filteredConversations.length,
                     separatorBuilder: (context, index) => const Divider(
                       height: 1,
                       indent: 84,
                       color: Color(0xFFF1F3F7),
                     ),
                     itemBuilder: (context, index) {
-                      final conv = filteredConversations[index];
+                      // Groups first, then conversations
+                      if (index < filteredGroups.length) {
+                        final group = filteredGroups[index];
+                        return _buildGroupTile(group);
+                      }
+                      
+                      final convIndex = index - filteredGroups.length;
+                      final conv = filteredConversations[convIndex];
                       final roomId = conv['roomId'] as String;
                       final peerId = conv['peerId'] as String;
                       final lastMsg = conv['lastMessage'] as ChatMessage;
@@ -1341,6 +1358,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       horizontalTitleGap: 0,
       dense: true,
       onTap: onTap,
+    );
+  }
+
+  Widget _buildGroupTile(Group group) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 26,
+        backgroundColor: const Color(0xFF1B4EBA).withValues(alpha: 0.15),
+        child: Text(
+          group.name[0].toUpperCase(),
+          style: const TextStyle(
+            color: Color(0xFF1B4EBA),
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+      ),
+      title: Text(
+        group.name,
+        style: TextStyle(
+          color: colorScheme.onSurface,
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+      ),
+      subtitle: Text(
+        '${group.memberIds.length} members',
+        style: TextStyle(
+          color: colorScheme.onSurface.withValues(alpha: 0.6),
+          fontSize: 13,
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: colorScheme.onSurface.withValues(alpha: 0.4),
+      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GroupChatScreen(group: group),
+          ),
+        );
+      },
     );
   }
 }

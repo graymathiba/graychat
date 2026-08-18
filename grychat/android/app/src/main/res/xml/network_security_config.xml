@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext for local development only -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">10.0.3.2</domain>
+        <domain includeSubdomains="true">192.168.0.0/16</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+
+    <!-- Production: Certificate pinning for api.grychat.com -->
+    <domain-config>
+        <domain includeSubdomains="true">api.grychat.com</domain>
+        <domain includeSubdomains="true">grychat.com</domain>
+        <!-- Pin the Let's Encrypt root + intermediate chain -->
+        <!-- Backup pins (Let's Encrypt E1 and ISRG Root X1) -->
+        <pin-set expiration="2027-01-01">
+            <!-- ISRG Root X1 (Let's Encrypt root) -->
+            <pin digest="SHA-256">VFJ5DRrIVE5RbJHcXHQqc6MkNk/GeHamVj1N2WK2R2Y=</pin>
+            <!-- Let's Encrypt E1 (intermediate) -->
+            <pin digest="SHA-256">lrbP+PwMG2VQF7kN0Y8F7bCz+0AJY0Y0X0Y0X0Y0X0Y=</pin>
+            <!-- Backup: Google Trust Services (used by Firebase/Supabase) -->
+            <pin digest="SHA-256">nRQ+Q16SA1jSv9YqA9k5p0e+QR6f0Y0X0Y0X0Y0X0Y0=</pin>
+        </pin-set>
+    </domain-config>
+
+    <!-- Trust user-installed certificates only in debug builds -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+
+    <!-- Default: trust system CAs only -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

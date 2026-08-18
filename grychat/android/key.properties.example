@@ -1,0 +1,11 @@
+# Release signing configuration for Android
+# IMPORTANT: Never commit this file to version control
+# 
+# To generate a keystore:
+# keytool -genkey -v -keystore grychat-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias grychat
+#
+# Then fill in the values below:
+storePassword=
+keyPassword=
+keyAlias=grychat
+storeFile=grychat-release.jks

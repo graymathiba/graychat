@@ -78,7 +78,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF171B24)),
+          icon: Icon(Icons.arrow_back_ios, color: Theme.of(context).colorScheme.onSurface),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -91,14 +91,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               children: [
                 const Icon(Icons.lock_reset_rounded, size: 52, color: Color(0xFF1B4EBA)),
                 const SizedBox(height: 20),
-                const Text('Reset Password', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF171B24))),
+                Text('Reset Password', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                 const SizedBox(height: 10),
                 Text(
                   _sent
                       ? 'Reset link sent! Check your email inbox.'
                       : 'Enter your email and we\'ll send you a reset link.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFF7E8494), fontSize: 15),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 15),
                 ),
                 const SizedBox(height: 36),
 
@@ -137,14 +137,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _sendResetEmail(),
-                    style: const TextStyle(color: Color(0xFF171B24)),
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'Email address',
-                      prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF7E8494)),
+                      prefixIcon: Icon(Icons.email_outlined, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
                       filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E6EE))),
+                      fillColor: Theme.of(context).scaffoldBackgroundColor,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
                       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
                     ),
                   ),

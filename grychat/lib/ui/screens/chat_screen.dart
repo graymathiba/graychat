@@ -419,10 +419,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// Returns the appropriate status icon for a sent message
-  Widget _buildStatusIcon(String status) {
+  Widget _buildStatusIcon(String status, {VoidCallback? onRetry}) {
     switch (status) {
       case 'sending':
-        return const Icon(Icons.access_time, color: Colors.white54, size: 12);
+        return const SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white54),
+        );
       case 'sent':
         return const Icon(Icons.done, color: Colors.white70, size: 12);
       case 'delivered':
@@ -430,10 +434,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'read':
         return const Icon(Icons.done_all, color: Color(0xFF60A5FA), size: 12);
       case 'failed':
-        return const Icon(
-          Icons.error_outline,
-          color: Colors.redAccent,
-          size: 12,
+        return GestureDetector(
+          onTap: onRetry,
+          child: const Icon(
+            Icons.error_outline,
+            color: Colors.redAccent,
+            size: 12,
+          ),
         );
       default:
         return const SizedBox.shrink();
@@ -582,7 +589,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       decoration: BoxDecoration(
         color: isMe
             ? Colors.white.withValues(alpha: 0.15)
-            : const Color(0xFFF0F2F5),
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(
@@ -609,7 +616,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: isMe ? Colors.white60 : const Color(0xFF7E8494),
+              color: isMe ? Colors.white60 : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
               fontSize: 12,
             ),
           ),
@@ -645,7 +652,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           : const Color(0xFF1B4EBA).withValues(alpha: 0.1))
                     : (isMe
                           ? Colors.white.withValues(alpha: 0.15)
-                          : const Color(0xFFF0F2F5)),
+                          : Theme.of(context).colorScheme.surfaceContainerHighest),
                 borderRadius: BorderRadius.circular(12),
                 border: isMyReaction
                     ? Border.all(
@@ -658,7 +665,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 '$emoji ${users.length > 1 ? users.length : ''}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: isMe ? Colors.white : const Color(0xFF171B24),
+                  color: isMe ? Colors.white : Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
@@ -700,7 +707,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return ErrorBoundary(
       child: Scaffold(
-        backgroundColor: const Color(0xFFF4F6FA),
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           backgroundColor: const Color(0xFF1B4EBA),
           iconTheme: const IconThemeData(color: Colors.white),
@@ -788,24 +795,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 showDialog(
                   context: context,
                   builder: (context) => AlertDialog(
-                    backgroundColor: Colors.white,
-                    title: const Text(
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                    title: Text(
                       'Clear Chat History',
                       style: TextStyle(
-                        color: Color(0xFF171B24),
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    content: const Text(
+                    content: Text(
                       'Are you sure you want to delete all messages in this conversation?',
-                      style: TextStyle(color: Color(0xFF7E8494)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
                     ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text(
+                        child: Text(
                           'Cancel',
-                          style: TextStyle(color: Color(0xFF7E8494)),
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
                         ),
                       ),
                       TextButton(
@@ -849,10 +856,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ).withValues(alpha: 0.15),
                               ),
                               const SizedBox(height: 16),
-                              const Text(
+                              Text(
                                 'No messages yet. Send a message to start.',
                                 style: TextStyle(
-                                  color: Color(0xFF7E8494),
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                   fontSize: 13,
                                 ),
                               ),
@@ -899,8 +906,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         const SizedBox(width: 8),
                         Text(
                           '$peerName is typing...',
-                          style: const TextStyle(
-                            color: Color(0xFF7E8494),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
                           ),
@@ -917,10 +924,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       horizontal: 16,
                       vertical: 8,
                     ),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFE8EDF5),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
                       border: Border(
-                        top: BorderSide(color: Color(0xFFD0D5DD), width: 0.5),
+                        top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant, width: 0.5),
                       ),
                     ),
                     child: Row(
@@ -951,8 +958,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 _replyToMessage!.content,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF7E8494),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                   fontSize: 12,
                                 ),
                               ),
@@ -974,10 +981,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     horizontal: 16,
                     vertical: 12,
                   ),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
                     border: Border(
-                      top: BorderSide(color: Color(0xFFE2E6EE), width: 0.8),
+                      top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant, width: 0.8),
                     ),
                   ),
                   child: Row(
@@ -996,11 +1003,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Expanded(
                         child: TextField(
                           controller: _messageController,
-                          style: const TextStyle(color: Color(0xFF171B24)),
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
                           decoration: InputDecoration(
                             hintText: 'Type your message...',
-                            hintStyle: const TextStyle(
-                              color: Color(0xFFB0B5C1),
+                            hintStyle: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
                             ),
                             filled: true,
                             fillColor: const Color(0xFFF4F6FA),
@@ -1151,7 +1158,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: isMe ? const Color(0xFF1B4EBA) : Colors.white,
+            color: isMe ? const Color(0xFF1B4EBA) : Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
@@ -1160,7 +1167,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
             border: isMe
                 ? null
-                : Border.all(color: const Color(0xFFE2E6EE), width: 0.8),
+                : Border.all(color: Theme.of(context).colorScheme.outlineVariant, width: 0.8),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.04),
@@ -1212,7 +1219,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     decoration: BoxDecoration(
                       color: isMe
                           ? Colors.white.withValues(alpha: 0.15)
-                          : const Color(0xFFF8F9FB),
+                          : Theme.of(context).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -1263,7 +1270,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 style: TextStyle(
                                   color: isMe
                                       ? Colors.white
-                                      : const Color(0xFF171B24),
+                                      : Theme.of(context).colorScheme.onSurface,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -1276,7 +1283,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 style: TextStyle(
                                   color: isMe
                                       ? Colors.white60
-                                      : const Color(0xFF7E8494),
+                                      : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                   fontSize: 11,
                                 ),
                               ),
@@ -1324,13 +1331,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Text(
                     timeStr,
                     style: TextStyle(
-                      color: isMe ? Colors.white70 : const Color(0xFF7E8494),
+                      color: isMe ? Colors.white70 : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                       fontSize: 10,
                     ),
                   ),
                   if (isMe) ...[
                     const SizedBox(width: 4),
-                    _buildStatusIcon(message.status),
+                    _buildStatusIcon(message.status, onRetry: message.status == 'failed'
+                        ? () => _retryMessage(message)
+                        : null),
                   ],
                 ],
               ),
@@ -1339,6 +1348,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       ),
     );
+  }
+
+  void _retryMessage(ChatMessage message) {
+    final chatService = ref.read(chatServiceProvider);
+    ref.read(databaseServiceProvider).updateChatMessageStatus(message.id, 'sending');
+    chatService.sendMessage(message.copyWith(status: 'sending'));
   }
 
   String _attachmentIcon(String type, {String? mimeType, String? fileName}) {
@@ -1364,7 +1379,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ? message.content
           : '${_attachmentIcon(message.messageType, mimeType: message.mimeType, fileName: message.fileName)} ${message.fileName ?? message.content}',
       style: TextStyle(
-        color: isMe ? Colors.white : const Color(0xFF171B24),
+        color: isMe ? Colors.white : Theme.of(context).colorScheme.onSurface,
         fontSize: 14.5,
       ),
     );
@@ -1452,7 +1467,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
                   style: TextStyle(
                     color: widget.isMine
                         ? Colors.white
-                        : const Color(0xFF171B24),
+                        : Theme.of(context).colorScheme.onSurface,
                     fontSize: 13,
                   ),
                 ),
@@ -1569,13 +1584,13 @@ class _VideoAttachmentPlayerState extends State<_VideoAttachmentPlayer> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.broken_image, color: Colors.grey, size: 20),
-                SizedBox(width: 8),
+                Icon(Icons.broken_image, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), size: 20),
+                const SizedBox(width: 8),
                 Text(
                   'Video Playback Error',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                 ),
               ],
             ),

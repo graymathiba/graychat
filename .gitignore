@@ -15,10 +15,10 @@ backend/index.js.map
 backend/index.d.ts
 backend/index.d.ts.map
 
-# Environment
+# Environment (all .env variants except .env.example)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Agent/IDE configs (API keys, secrets)
 .continue/
@@ -31,6 +31,9 @@ backend/index.d.ts.map
 *.swo
 *~
 .DS_Store
+
+# Kotlin
+grychat/android/.kotlin/
 
 # Flutter
 grychat/.dart_tool/

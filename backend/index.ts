@@ -1,16 +1,164 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
+import { initializeApp, cert } from 'firebase-admin/app';
+import type { App } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
+
+// Initialize Firebase Admin SDK
+let firebaseApp: App | null = null;
+if (!firebaseApp) {
+  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccount) {
+    try {
+      firebaseApp = initializeApp({
+        credential: cert(JSON.parse(serviceAccount)),
+      });
+      console.log('[Firebase] Admin SDK initialized with service account');
+    } catch (err) {
+      console.error('[Firebase] Failed to parse FIREBASE_SERVICE_ACCOUNT JSON:', err);
+      process.exit(1);
+    }
+  } else {
+    // In production, fail hard without service account
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Firebase] FIREBASE_SERVICE_ACCOUNT is required in production');
+      process.exit(1);
+    }
+    firebaseApp = initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID ?? 'dev-project',
+    });
+    console.log('[Firebase] Admin SDK initialized with project ID only (dev mode)');
+  }
+}
+
+// Initialize Supabase client for database persistence
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+let supabase: ReturnType<typeof createClient> | null = null;
+
+if (supabaseUrl && supabaseKey) {
+  supabase = createClient(supabaseUrl, supabaseKey);
+  console.log('[Supabase] Client initialized for database persistence');
+} else {
+  console.warn('[Supabase] URL or key not provided, running without persistence');
+}
+
+// ─── Database Persistence Functions ──────────────────────────────────
+async function persistMessage(message: any): Promise<void> {
+  if (!supabase) return;
+  
+  try {
+    const { error } = await supabase
+      .from('messages')
+      .insert({
+        id: message.id,
+        room_id: message.roomId,
+        sender_id: message.senderId,
+        receiver_id: message.receiverId,
+        group_id: message.groupId || null,
+        content: message.content,
+        message_type: message.messageType,
+        file_name: message.fileName,
+        mime_type: message.mimeType,
+        attachment_size: message.attachmentSize,
+        status: message.status,
+        timestamp: message.timestamp,
+        server_timestamp: message.serverTimestamp,
+      } as any);
+    
+    if (error) {
+      console.error('[DB] Failed to persist message:', error.message);
+    }
+  } catch (err) {
+    console.error('[DB] Message persistence error:', err);
+  }
+}
+
+async function persistGroup(group: any): Promise<void> {
+  if (!supabase) return;
+  
+  try {
+    // Insert group
+    const { error: groupError } = await supabase
+      .from('groups')
+      .upsert({
+        id: group.id,
+        name: group.name,
+        creator_id: group.creatorId,
+        created_at: group.createdAt,
+      } as any);
+    
+    if (groupError) {
+      console.error('[DB] Failed to persist group:', groupError.message);
+      return;
+    }
+
+    // Insert group members
+    const members = group.memberIds.map((userId: string) => ({
+      group_id: group.id,
+      user_id: userId,
+    }));
+    
+    const { error: membersError } = await supabase
+      .from('group_members')
+      .upsert(members, { onConflict: 'group_id,user_id' });
+    
+    if (membersError) {
+      console.error('[DB] Failed to persist group members:', membersError.message);
+    }
+  } catch (err) {
+    console.error('[DB] Group persistence error:', err);
+  }
+}
+
+// ─── Rate Limiting ──────────────────────────────────────────────────
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_CONNECTIONS = 10;
+const RATE_LIMIT_MAX_MESSAGES = 60; // per minute
+const MAX_MESSAGE_SIZE = 1 * 1024 * 1024; // 1 MB
+const MAX_DISPLAY_NAME_LENGTH = 50;
+const MAX_GROUP_MEMBERS = 100;
+
+const connectionCounts = new Map<string, number>();
+const messageCounts = new Map<string, number>();
+
+function checkRateLimit(identifier: string, type: 'connection' | 'message'): boolean {
+  const now = Date.now();
+  
+  if (type === 'connection') {
+    const count = connectionCounts.get(identifier) || 0;
+    if (count >= RATE_LIMIT_MAX_CONNECTIONS) return false;
+    connectionCounts.set(identifier, count + 1);
+    setTimeout(() => connectionCounts.delete(identifier), RATE_LIMIT_WINDOW_MS);
+  }
+  
+  if (type === 'message') {
+    const count = messageCounts.get(identifier) || 0;
+    if (count >= RATE_LIMIT_MAX_MESSAGES) return false;
+    messageCounts.set(identifier, count + 1);
+    setTimeout(() => messageCounts.delete(identifier), RATE_LIMIT_WINDOW_MS);
+  }
+  
+  return true;
+}
+
+// ─── CORS Configuration ────────────────────────────────────────────
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || [
+  'https://grychat.com',
+];
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" },
-  // Attachments are base64 encoded by the Flutter client before transport.
-  // Leave headroom for that encoding and the surrounding Socket.IO payload.
-  maxHttpBufferSize: 75 * 1024 * 1024,
+  cors: { 
+    origin: ALLOWED_ORIGINS,
+    methods: ['GET', 'POST'],
+  },
+  // Limit buffer size to 1 MB for security
+  maxHttpBufferSize: MAX_MESSAGE_SIZE,
 });
 
 // ─── In-memory presence tracking ────────────────────────────────────
@@ -62,49 +210,57 @@ function getOnlineUsers() {
 }
 
 // ─── JWT Authentication Middleware ──────────────────────────────────
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth.token;
-    const secret = process.env.JWT_SECRET;
 
     if (!token) {
-      console.log(`[Auth] No token for socket ${socket.id}, proceeding as guest.`);
-      return next();
+      console.warn(`[Auth] No token for socket ${socket.id}, rejecting connection.`);
+      return next(new Error('Authentication required'));
     }
 
-    if (!secret || secret === 'change-me-to-a-random-secret') {
-      console.warn('[Auth] WARNING: JWT_SECRET not configured properly, skipping verification');
-      return next();
-    }
-
-    jwt.verify(token, secret, (err: any, decoded: any) => {
-      if (err) {
-        console.warn(`[Auth] Invalid token for socket ${socket.id}: ${err.message}`);
-        return next(new Error('Authentication failed'));
-      }
-      socket.data.user = decoded;
-      console.log(`[Auth] Authenticated socket ${socket.id} as user ${decoded.sub}`);
+    try {
+      const decodedToken = await getAuth(firebaseApp!).verifyIdToken(token);
+      socket.data.user = decodedToken;
+      console.log(`[Auth] Authenticated socket ${socket.id} as user ${decodedToken.uid}`);
       next();
-    });
+    } catch (error: any) {
+      console.warn(`[Auth] Invalid token for socket ${socket.id}: ${error.message}`);
+      return next(new Error('Invalid authentication token'));
+    }
   } catch (error) {
     console.error('[Auth] Unexpected error in authentication middleware:', error);
-    next();
+    next(new Error('Authentication error'));
   }
 });
 
 // ─── Connection Handler ──────────────────────────────────────────────
 io.on('connection', (socket) => {
-  const userId = socket.data.user?.sub || socket.id;
+  const userId = socket.data.user?.uid || socket.id;
   console.log(`✅ User connected: ${userId} (socket: ${socket.id})`);
 
   // ── Register Presence ─────────────────────────────────────────
   socket.on('register', (data: any) => {
     try {
+      // Input validation
+      if (!data || typeof data !== 'object') {
+        socket.emit('error', { message: 'Invalid registration data' });
+        return;
+      }
+
       const uid = data.userId || userId;
       socket.data.registeredUserId = uid;
       const shortCode = generateShortCode(uid);
-      const displayName = data.deviceName || `User ${uid.substring(0, 8)}`;
-      const profilePicBase64 = data.profilePicBase64 || '';
+      
+      // Validate and sanitize displayName
+      const displayName = typeof data.deviceName === 'string' 
+        ? data.deviceName.slice(0, MAX_DISPLAY_NAME_LENGTH) 
+        : `User ${uid.substring(0, 8)}`;
+      
+      // Validate profilePicBase64 size
+      const profilePicBase64 = typeof data.profilePicBase64 === 'string' && data.profilePicBase64.length < 1000000
+        ? data.profilePicBase64 
+        : '';
 
       onlineUsers.set(uid, { socketId: socket.id, shortCode, displayName, profilePicBase64 });
       shortCodeToUserId.set(shortCode, uid);
@@ -164,30 +320,7 @@ io.on('connection', (socket) => {
     console.log(`🏠 User ${registeredId} joined room: ${roomId} | rooms now: ${JSON.stringify(Array.from(socket.rooms))}`);
   });
 
-  // ── WebRTC Signaling (direct socket routing) ──────────────────
-  // P2P data channel signaling (raw events)
-  for (const signalType of ['offer', 'answer', 'ice_candidate']) {
-    socket.on(signalType, (data: any) => {
-      const senderId = socket.data.registeredUserId || userId;
-      const targetId = data?.targetId as string;
-      if (!targetId) return;
-
-      let delivered = false;
-      for (const recipientSocket of io.sockets.sockets.values()) {
-        const registeredId = recipientSocket.data.registeredUserId;
-        if (registeredId === targetId) {
-          recipientSocket.emit(signalType, {
-            senderId,
-            targetId,
-            data: data.data,
-          });
-          delivered = true;
-        }
-      }
-      console.log(`[Signal] ${signalType} from ${senderId} → ${targetId} (delivered: ${delivered})`);
-    });
-  }
-
+  // ── WebRTC Call Signaling ────────────────────────────────────
   // Audio/video call signaling (prefixed to avoid collision with P2P data channel signaling)
   for (const signalType of ['call:offer', 'call:answer', 'call:ice_candidate', 'call:reject', 'call:hangup']) {
     socket.on(signalType, (data: any) => {
@@ -214,6 +347,22 @@ io.on('connection', (socket) => {
   // ── Send Message ──────────────────────────────────────────────
   socket.on('sendMessage', (data: any) => {
     try {
+      // Rate limiting (per-user, not per-socket)
+      const rateLimitId = (socket.data.registeredUserId || userId) as string;
+      if (!checkRateLimit(rateLimitId, 'message')) {
+        socket.emit('messageError', {
+          id: data?.id,
+          error: 'Rate limit exceeded. Please slow down.',
+        });
+        return;
+      }
+
+      // Input validation
+      if (!data || typeof data !== 'object') {
+        socket.emit('messageError', { id: null, error: 'Invalid message format' });
+        return;
+      }
+
       const serverTimestamp = new Date().toISOString();
       
       // Derive correct roomId from sorted user IDs (data isolation)
@@ -222,6 +371,21 @@ io.on('connection', (socket) => {
       if (!senderId || !receiverId) {
         throw new Error('Invalid message participants');
       }
+
+      // Validate content
+      const content = data.content as string;
+      if (!content || typeof content !== 'string' || content.length > MAX_MESSAGE_SIZE) {
+        socket.emit('messageError', {
+          id: data?.id,
+          error: 'Invalid message content',
+        });
+        return;
+      }
+
+      // Validate message type
+      const validMessageTypes = ['text', 'image', 'audio', 'video', 'file', 'application/pdf'];
+      const messageType = validMessageTypes.includes(data.messageType) ? data.messageType : 'text';
+
       const correctRoomId = deriveRoomId(senderId, receiverId);
       
       // Warn if client sent wrong roomId (security/debugging)
@@ -237,8 +401,8 @@ io.on('connection', (socket) => {
         roomId: correctRoomId, // Use derived roomId, not client-provided
         senderId: senderId,
         receiverId: receiverId,
-        content: data.content,
-        messageType: data.messageType || 'text',
+        content: content,
+        messageType: messageType,
         fileName: data.fileName,
         mimeType: data.mimeType,
         attachmentBase64: data.attachmentBase64,
@@ -248,11 +412,14 @@ io.on('connection', (socket) => {
         serverTimestamp,
       };
 
+      // Persist message to database (fire and forget)
+      persistMessage(message);
+
       // Self-chat (Saved Messages): deliver back to the sender's own sockets
       if (senderId === receiverId) {
         for (const recipientSocket of io.sockets.sockets.values()) {
           const registeredId =
-            recipientSocket.data.registeredUserId || recipientSocket.data.user?.sub;
+            recipientSocket.data.registeredUserId || recipientSocket.data.user?.uid;
           if (registeredId !== senderId) continue;
           if (!recipientSocket.rooms.has(correctRoomId)) {
             recipientSocket.join(correctRoomId);
@@ -276,7 +443,7 @@ io.on('connection', (socket) => {
       // Also deliver to every active socket for the recipient. A user can
       // have multiple app windows or a reconnecting socket at the same time.
       for (const recipientSocket of io.sockets.sockets.values()) {
-        const registeredId = recipientSocket.data.registeredUserId || recipientSocket.data.user?.sub;
+        const registeredId = recipientSocket.data.registeredUserId || recipientSocket.data.user?.uid;
         if (registeredId !== receiverId || recipientSocket.id === socket.id) continue;
         if (!recipientSocket.rooms.has(correctRoomId)) {
           recipientSocket.join(correctRoomId);
@@ -435,10 +602,21 @@ io.on('connection', (socket) => {
 
   // ── Group Management ─────────────────────────────────────────
   socket.on('createGroup', (data: any) => {
+    // Input validation
+    if (!data || typeof data !== 'object') {
+      socket.emit('error', { message: 'Invalid group data' });
+      return;
+    }
+
     const senderId = socket.data.registeredUserId || userId;
     const groupId = data.groupId as string;
-    const groupName = data.groupName as string;
-    const memberIds = (data.memberIds as string[]) || [];
+    const groupName = typeof data.groupName === 'string' 
+      ? data.groupName.slice(0, MAX_DISPLAY_NAME_LENGTH) 
+      : '';
+    const memberIds = Array.isArray(data.memberIds) 
+      ? (data.memberIds as string[]).slice(0, MAX_GROUP_MEMBERS)
+      : [];
+    
     if (!groupId || !groupName || memberIds.length === 0) return;
 
     const group = {
@@ -449,6 +627,9 @@ io.on('connection', (socket) => {
       createdAt: new Date().toISOString(),
     };
     groups.set(groupId, group);
+
+    // Persist group to database (fire and forget)
+    persistGroup(group);
 
     // Notify all members
     for (const memberId of group.memberIds) {
@@ -523,12 +704,61 @@ io.on('connection', (socket) => {
 
 // ─── Health Check Endpoint ───────────────────────────────────────────
 app.get('/health', (req, res) => {
-  const users = Array.from(onlineUsers.entries()).map(([id, info]) => ({
-    userId: id,
-    shortCode: info.shortCode,
-    displayName: info.displayName,
-  }));
-  res.json({ status: 'ok', onlineUsers: onlineUsers.size, users, uptime: process.uptime() });
+  if (process.env.NODE_ENV === 'production') {
+    res.json({ status: 'ok' });
+  } else {
+    res.json({ 
+      status: 'ok', 
+      onlineUsers: onlineUsers.size, 
+      groups: groups.size,
+      uptime: process.uptime(),
+      memoryUsage: process.memoryUsage().heapUsed,
+    });
+  }
+});
+
+// ─── TURN Credentials Endpoint ──────────────────────────────────────
+// Requires authentication to prevent credential harvesting
+app.get('/turn-credentials', async (req, res) => {
+  // Verify Firebase token from query param or header
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') 
+    ? authHeader.slice(7) 
+    : (req.query.token as string);
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  try {
+    await getAuth(firebaseApp!).verifyIdToken(token);
+  } catch {
+    return res.status(401).json({ error: 'Invalid authentication token' });
+  }
+
+  const turnUsername = process.env.TURN_USERNAME || '';
+  const turnCredential = process.env.TURN_CREDENTIAL || '';
+  const turnUrls = process.env.TURN_URLS?.split(',') || [];
+
+  if (!turnUsername || !turnCredential || turnUrls.length === 0) {
+    return res.status(503).json({ error: 'TURN credentials not configured' });
+  }
+
+  res.json({
+    iceServers: [
+      {
+        urls: [
+          'stun:stun.l.google.com:19302',
+          'stun:stun1.l.google.com:19302',
+        ],
+      },
+      {
+        urls: turnUrls,
+        username: turnUsername,
+        credential: turnCredential,
+      },
+    ],
+  });
 });
 
 const PORT = process.env.PORT || 3000;

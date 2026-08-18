@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_config.dart';
 import 'core/database/hive_adapters.dart';
@@ -13,7 +15,7 @@ import 'core/network/call_service.dart';
 import 'core/providers/call_provider.dart';
 import 'core/providers/database_provider.dart';
 import 'core/providers/chat_provider.dart';
-import 'core/providers/signaling_provider.dart';
+
 import 'ui/screens/call_screen.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/login_screen.dart';
@@ -23,6 +25,11 @@ import 'package:media_kit/media_kit.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 bool firebaseAvailable = false;
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  print('[FCM] Background message: ${message.messageId}');
+}
 
 File get _crashLog => File('${Directory.systemTemp.path}/grychat_crash_${Platform.environment['APP_PROFILE'] ?? 'main'}.log');
 
@@ -69,6 +76,41 @@ void _mainInner() async {
         ),
       );
       print('[Init] step: firebase done');
+      
+      // Initialize Firebase Crashlytics
+      try {
+        await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+        FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+        print('[Init] step: crashlytics done');
+      } catch (e) {
+        print('[Init] Crashlytics init failed: $e');
+      }
+
+      // Initialize Firebase Cloud Messaging
+      try {
+        final messaging = FirebaseMessaging.instance;
+        final settings = await messaging.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        print('[Init] FCM permission: ${settings.authorizationStatus}');
+
+        final token = await messaging.getToken();
+        print('[Init] FCM token: ${token?.substring(0, 20)}...');
+
+        // Listen for token refresh
+        messaging.onTokenRefresh.listen((newToken) {
+          print('[Init] FCM token refreshed: ${newToken.substring(0, 20)}...');
+        });
+
+        // Handle background messages
+        FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+        print('[Init] step: fcm done');
+      } catch (e) {
+        print('[Init] FCM init failed: $e');
+      }
+      
       firebaseAvailable = true;
     } catch (e) {
       print('[Init] Firebase init failed (continue as guest): $e');
@@ -225,7 +267,6 @@ class _MyAppState extends ConsumerState<MyApp> {
         data: (_) {
           if (!firebaseAvailable) {
             print('[Auth] Firebase not available — bypassing login');
-            ref.read(signalingServiceProvider);
             return const HomeScreen();
           }
           return Consumer(builder: (context, ref, _) {
@@ -233,7 +274,6 @@ class _MyAppState extends ConsumerState<MyApp> {
             return authState.when(
               data: (user) {
                 if (user == null) return const LoginScreen();
-                ref.read(signalingServiceProvider);
                 return const HomeScreen();
               },
               loading: () => const SplashScreen(message: 'Checking login...'),

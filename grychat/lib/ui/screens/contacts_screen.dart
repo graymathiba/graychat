@@ -61,10 +61,10 @@ class ContactsScreen extends ConsumerWidget {
         foregroundColor: Colors.white,
       ),
       body: contacts.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
                 'No contacts yet. Share your invite code to add friends!',
-                style: TextStyle(color: Color(0xFF7E8494)),
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
               ),
             )
           : ListView.separated(
@@ -98,7 +98,7 @@ class ContactsScreen extends ConsumerWidget {
                           decoration: BoxDecoration(
                             color: isOnline
                                 ? const Color(0xFF10B981)
-                                : Colors.grey,
+                                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 2),
                           ),
@@ -115,7 +115,7 @@ class ContactsScreen extends ConsumerWidget {
                     style: TextStyle(
                       color: isOnline
                           ? const Color(0xFF10B981)
-                          : const Color(0xFF7E8494),
+                          : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                       fontSize: 12,
                     ),
                   ),

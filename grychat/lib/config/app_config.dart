@@ -32,7 +32,7 @@ class AppConfig {
     }
   }
 
-  // WebRTC ICE servers for NAT traversal (STUN) and cross-network relay (TURN).
+  // Default ICE servers for WebRTC calls
   static const Map<String, dynamic> iceServers = {
     'iceServers': [
       {
@@ -40,11 +40,6 @@ class AppConfig {
           'stun:stun.l.google.com:19302',
           'stun:stun1.l.google.com:19302',
         ],
-      },
-      {
-        'urls': 'turn:free.expressturn.com:3478',
-        'username': '000000002102080998',
-        'credential': 'WoOD+jCtcbNSn1FI3UiKuwBc+4Y=',
       },
     ],
   };

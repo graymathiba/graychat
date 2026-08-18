@@ -90,7 +90,7 @@ class ChatService {
       _socket = io.io(serverUrl, {
         'transports': ['websocket'],
         'autoConnect': false,
-        'maxHttpBufferSize': 100e6,
+        'maxHttpBufferSize': 1e6,
         if (token != null) 'auth': {'token': token},
       });
 
@@ -102,6 +102,7 @@ class ChatService {
         _connectionController.add(true);
         _registerPresence();
         _startPresenceHeartbeat();
+        _retryPendingMessages();
       });
 
       _socket.on('disconnect', (_) {
@@ -349,13 +350,31 @@ class ChatService {
   }
 
   // ─── Send Message ────────────────────────────────────────────────
+  final Set<String> _pendingMessageIds = {};
+
   void sendMessage(ChatMessage message) {
     if (!isConnected) {
-      print('[ChatService] Cannot send message: Not connected');
+      print('[ChatService] Queuing message for retry: ${message.id}');
+      _pendingMessageIds.add(message.id);
       return;
     }
+    _pendingMessageIds.remove(message.id);
     _socket.emit('sendMessage', message.toJson());
     print('[ChatService] 💬 Sent message: ${message.id}');
+  }
+
+  /// Retry all pending messages after reconnection
+  void _retryPendingMessages() {
+    if (_pendingMessageIds.isEmpty || databaseService == null) return;
+    print('[ChatService] Retrying ${_pendingMessageIds.length} pending messages');
+    for (final messageId in List<String>.from(_pendingMessageIds)) {
+      final message = databaseService!.getChatMessageById(messageId);
+      if (message != null && message.status == 'sending') {
+        sendMessage(message);
+      } else {
+        _pendingMessageIds.remove(messageId);
+      }
+    }
   }
 
   // ─── Typing Status ──────────────────────────────────────────────

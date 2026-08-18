@@ -75,12 +75,12 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
+                Text(
                   'Choose Profile Picture',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF171B24),
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -264,18 +264,18 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF171B24), size: 20),
+          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).colorScheme.onSurface, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'COMPLETE PROFILE',
           style: TextStyle(
-            color: Color(0xFF171B24),
+            color: Theme.of(context).colorScheme.onSurface,
             fontSize: 15,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.0,
@@ -304,7 +304,7 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                           color: const Color(0xFFF4F6FA),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: const Color(0xFFE2E6EE),
+                            color: Theme.of(context).colorScheme.outlineVariant,
                             width: 1.5,
                           ),
                         ),
@@ -324,17 +324,17 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                                       fit: BoxFit.cover,
                                     ),
                                   )
-                                : const Icon(
+                                : Icon(
                                     Icons.add_a_photo_outlined,
-                                    color: Color(0xFF7E8494),
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                     size: 36,
                                   ),
                       ),
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         'Upload your profile picture',
                         style: TextStyle(
-                          color: Color(0xFF7E8494),
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -362,26 +362,26 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   const SizedBox(height: 6),
                   TextField(
                     controller: _firstNameController,
-                    style: const TextStyle(
-                      color: Color(0xFF171B24),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Enter your first name',
-                      hintStyle: TextStyle(
+                      hintStyle: const TextStyle(
                         color: Color(0xFFC4C8D3),
                         fontWeight: FontWeight.normal,
                       ),
                       enabledBorder: UnderlineInputBorder(
                         borderSide: BorderSide(
-                          color: Color(0xFFE2E6EE),
+                          color: Theme.of(context).colorScheme.outlineVariant,
                           width: 1.5,
                         ),
                       ),
                       focusedBorder: UnderlineInputBorder(
                         borderSide: BorderSide(
-                          color: Color(0xFF1B4EBA),
+                          color: const Color(0xFF1B4EBA),
                           width: 2.0,
                         ),
                       ),
@@ -396,10 +396,10 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'LAST NAME',
                     style: TextStyle(
-                      color: Color(0xFF7E8494),
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.0,
@@ -408,26 +408,26 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   const SizedBox(height: 6),
                   TextField(
                     controller: _lastNameController,
-                    style: const TextStyle(
-                      color: Color(0xFF171B24),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'Enter your last name',
-                      hintStyle: TextStyle(
+                      hintStyle: const TextStyle(
                         color: Color(0xFFC4C8D3),
                         fontWeight: FontWeight.normal,
                       ),
                       enabledBorder: UnderlineInputBorder(
                         borderSide: BorderSide(
-                          color: Color(0xFFE2E6EE),
+                          color: Theme.of(context).colorScheme.outlineVariant,
                           width: 1.5,
                         ),
                       ),
                       focusedBorder: UnderlineInputBorder(
                         borderSide: BorderSide(
-                          color: Color(0xFF1B4EBA),
+                          color: const Color(0xFF1B4EBA),
                           width: 2.0,
                         ),
                       ),

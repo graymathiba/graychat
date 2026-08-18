@@ -433,6 +433,16 @@ class DatabaseService {
     return unreadMessages;
   }
 
+  /// Get a chat message by ID
+  ChatMessage? getChatMessageById(String messageId) {
+    try {
+      return _chatMessagesBox.get(messageId);
+    } catch (e) {
+      print('[DatabaseService] ERROR getting chat message by ID: $e');
+      return null;
+    }
+  }
+
   /// Get all chat messages for a room, sorted oldest → newest
   List<ChatMessage> getChatMessagesByRoomId(String roomId) {
     try {
