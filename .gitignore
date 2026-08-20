@@ -46,7 +46,24 @@ grychat/pubspec.lock
 # Logs
 *.log
 flutter_run_verbose.log
+server_stderr.txt
+server_stdout.txt
 
 # OS
 Thumbs.db
 desktop.ini
+
+# Build outputs
+installer_output/
+*.exe
+
+# Temp / scratch
+cookiejar.txt
+dirsearch_results.txt
+s1.txt
+s2.txt
+s3.txt
+s4.txt
+s5.txt
+session.txt
+adminpage.html

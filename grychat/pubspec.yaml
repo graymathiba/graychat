@@ -58,6 +58,8 @@ dependencies:
   media_kit_libs_video: ^1.0.5
   pdfx: ^2.6.0
   encrypt: ^5.0.3
+  http: ^1.2.2
+  device_info_plus: 13.2.0
 
 dev_dependencies:
   flutter_test:

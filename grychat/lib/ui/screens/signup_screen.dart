@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -250,6 +250,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         email: email,
         password: password,
         username: username,
+        firstName: firstName,
+        lastName: lastName,
       );
 
       final firebaseUser = authService.currentUser;
@@ -264,10 +266,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         );
         await ref.read(userProfileProvider.notifier).saveProfile(profile);
       }
+
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } on FirebaseAuthException catch (e) {
-      print(
-        '[SignupScreen] Firebase error: code=${e.code}, message=${e.message}',
-      );
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -275,7 +278,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         });
       }
     } catch (e) {
-      print('[SignupScreen] Unexpected error: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;

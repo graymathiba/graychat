@@ -5,8 +5,6 @@ import '../database/database_service.dart';
 import '../models/chat_message.dart';
 import '../utils/app_logger.dart';
 
-/// ChatService handles server-routed messaging via Socket.io.
-/// Supports short code discovery, presence tracking, typing, read receipts.
 class ChatService {
   final String serverUrl;
   final String localUserId;
@@ -21,7 +19,6 @@ class ChatService {
   static const int _maxReconnectAttempts = 10;
   static const Duration _baseReconnectDelay = Duration(seconds: 2);
 
-  // ─── Stream controllers ──────────────────────────────────────────
   final _connectionController = StreamController<bool>.broadcast();
   final _messageController = StreamController<ChatMessage>.broadcast();
   final _ackController = StreamController<Map<String, dynamic>>.broadcast();
@@ -48,7 +45,6 @@ class ChatService {
     this.databaseService,
   });
 
-  // ─── Public streams ──────────────────────────────────────────────
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<ChatMessage> get messageStream => _messageController.stream;
   Stream<Map<String, dynamic>> get ackStream => _ackController.stream;
@@ -66,6 +62,7 @@ class ChatService {
   Stream<Map<String, dynamic>> get errorStream => _errorController.stream;
 
   bool get isConnected {
+    if (_isDisposed) return false;
     try {
       return _socket.connected;
     } catch (_) {
@@ -73,9 +70,11 @@ class ChatService {
     }
   }
 
-  io.Socket get socket => _socket;
+  io.Socket get socket {
+    assert(!_isDisposed, 'ChatService is disposed');
+    return _socket;
+  }
 
-  // ─── Connect ─────────────────────────────────────────────────────
   Future<void> connect() async {
     if (_isDisposed || _isConnecting || isConnected) return;
     _isConnecting = true;
@@ -94,11 +93,10 @@ class ChatService {
         if (token != null) 'auth': {'token': token},
       });
 
-      // ── Connection events ─────────────────────────────────────
       _socket.on('connect', (_) {
         AppLogger.success('ChatService', 'Connected', {'socketId': _socket.id});
         _isConnecting = false;
-        _reconnectAttempts = 0; // Reset on successful connection
+        _reconnectAttempts = 0;
         _connectionController.add(true);
         _registerPresence();
         _startPresenceHeartbeat();
@@ -119,14 +117,11 @@ class ChatService {
         _handleDisconnect();
       });
 
-      // ── My short code from server ─────────────────────────────
       _socket.on('myShortCode', (data) {
         final code = data['shortCode'] as String;
-        print('[ChatService] 🔑 My short code: $code');
         _shortCodeController.add(code);
       });
 
-      // ── Full online users list (sent on connect) ──────────────
       _socket.on('onlineUsersList', (data) {
         final list = (data as List)
             .map((user) => Map<String, dynamic>.from(user as Map))
@@ -155,7 +150,6 @@ class ChatService {
         }
       });
 
-      // ── Messaging events ──────────────────────────────────────
       _socket.on('newMessage', (data) {
         final message = ChatMessage.fromJson(
           Map<String, dynamic>.from(data as Map),
@@ -169,13 +163,11 @@ class ChatService {
           );
           return;
         }
-        print('[ChatService] 📨 New message from ${message.senderId}');
         databaseService?.addChatMessage(message);
         _messageController.add(message);
       });
 
       _socket.on('messageAck', (data) {
-        print('[ChatService] ✓ Message acknowledged: ${data['id']}');
         final messageId = data['id'] as String;
         final status = data['status'] as String;
         final serverTs = data['serverTimestamp'] != null
@@ -189,9 +181,7 @@ class ChatService {
         _ackController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      // ── Message error events ───────────────────────────────────
       _socket.on('messageError', (data) {
-        print('[ChatService] ✖ Message error: $data');
         final messageData = Map<String, dynamic>.from(data as Map);
         final messageId = messageData['id'] as String?;
         if (messageId != null) {
@@ -200,12 +190,10 @@ class ChatService {
         _errorController.add(messageData);
       });
 
-      // ── Typing events ─────────────────────────────────────────
       _socket.on('typingStatus', (data) {
         _typingController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      // ── Read receipt events ───────────────────────────────────
       _socket.on('readReceipt', (data) {
         final messageId = data['messageId'] as String?;
         if (messageId != null) {
@@ -214,7 +202,6 @@ class ChatService {
         _readReceiptController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      // ── Presence events ───────────────────────────────────────
       _socket.on('userPresence', (data) {
         final presence = Map<String, dynamic>.from(data as Map);
         final userId = presence['userId'] as String?;
@@ -234,17 +221,14 @@ class ChatService {
         _presenceController.add(presence);
       });
 
-      // ── Short code resolve result ─────────────────────────────
       _socket.on('resolveShortCodeResult', (data) {
         _resolveResultController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      // ── Reaction events ──────────────────────────────────────
       _socket.on('reaction', (data) {
         _reactionController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      // ── Group events ─────────────────────────────────────────
       _socket.on('groupCreated', (data) {
         _groupController.add({
           ...Map<String, dynamic>.from(data as Map),
@@ -264,25 +248,21 @@ class ChatService {
         });
       });
 
-      // ── Group messages (routed via socket room) ──────────────
       _socket.on('newGroupMessage', (data) {
         final message = ChatMessage.fromJson(
           Map<String, dynamic>.from(data as Map),
         );
-        print('[ChatService] 📨 New group message from ${message.senderId}');
         databaseService?.addChatMessage(message);
         _messageController.add(message);
       });
 
       _socket.connect();
     } catch (e) {
-      print('[ChatService] 🔴 Connection failed: $e');
       _isConnecting = false;
       _handleDisconnect();
     }
   }
 
-  // ─── Presence Registration ───────────────────────────────────────
   void _registerPresence() {
     final profile = databaseService?.getUserProfile(localUserId);
     final data = <String, dynamic>{
@@ -299,13 +279,10 @@ class ChatService {
     }
   }
 
-  /// Re-register presence after a profile update
   void updateProfilePresence() {
     if (isConnected) _registerPresence();
   }
 
-  // ─── Presence Heartbeat ────────────────────────────────────────
-  // Periodically re-register presence to recover from missed events.
   void _startPresenceHeartbeat() {
     _stopPresenceHeartbeat();
     _presenceHeartbeat = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -318,7 +295,6 @@ class ChatService {
     _presenceHeartbeat = null;
   }
 
-  // ─── Short Code Resolution ───────────────────────────────────────
   void resolveShortCode(String shortCode) {
     final normalizedCode = shortCode.trim().toUpperCase();
     final knownUser = _knownUsersByShortCode[normalizedCode];
@@ -332,41 +308,28 @@ class ChatService {
       });
       return;
     }
-    if (!isConnected) {
-      print('[ChatService] Cannot resolve short code: Not connected');
-      return;
-    }
+    if (!isConnected) return;
     _socket.emit('resolveShortCode', {'shortCode': normalizedCode});
   }
 
-  // ─── Room Management ─────────────────────────────────────────────
   void joinRoom(String roomId) {
-    if (!isConnected) {
-      print('[ChatService] Cannot join room: Not connected');
-      return;
-    }
+    if (!isConnected) return;
     _socket.emit('join-room', roomId);
-    print('[ChatService] 🏠 Joining room: $roomId');
   }
 
-  // ─── Send Message ────────────────────────────────────────────────
   final Set<String> _pendingMessageIds = {};
 
   void sendMessage(ChatMessage message) {
     if (!isConnected) {
-      print('[ChatService] Queuing message for retry: ${message.id}');
       _pendingMessageIds.add(message.id);
       return;
     }
     _pendingMessageIds.remove(message.id);
     _socket.emit('sendMessage', message.toJson());
-    print('[ChatService] 💬 Sent message: ${message.id}');
   }
 
-  /// Retry all pending messages after reconnection
   void _retryPendingMessages() {
     if (_pendingMessageIds.isEmpty || databaseService == null) return;
-    print('[ChatService] Retrying ${_pendingMessageIds.length} pending messages');
     for (final messageId in List<String>.from(_pendingMessageIds)) {
       final message = databaseService!.getChatMessageById(messageId);
       if (message != null && message.status == 'sending') {
@@ -377,7 +340,6 @@ class ChatService {
     }
   }
 
-  // ─── Typing Status ──────────────────────────────────────────────
   void sendTypingStatus(String roomId, bool isTyping) {
     if (!isConnected) return;
     _socket.emit('typingStatus', {
@@ -387,7 +349,6 @@ class ChatService {
     });
   }
 
-  // ─── Read Receipt ────────────────────────────────────────────────
   void sendReadReceipt(String roomId, String messageId) {
     if (!isConnected) return;
     _socket.emit('readReceipt', {
@@ -397,12 +358,11 @@ class ChatService {
     });
   }
 
-  // ─── Reaction ────────────────────────────────────────────────────
   void sendReaction({
     required String targetId,
     required String messageId,
     required String emoji,
-    required String action, // 'add' or 'remove'
+    required String action,
     String? groupId,
   }) {
     if (!isConnected) return;
@@ -416,7 +376,6 @@ class ChatService {
     _socket.emit('reaction', data);
   }
 
-  // ─── Group Management ────────────────────────────────────────────
   void createGroup({
     required String groupId,
     required String groupName,
@@ -440,18 +399,15 @@ class ChatService {
     _socket.emit('leaveGroup', {'groupId': groupId});
   }
 
-  // ─── Profile Update ──────────────────────────────────────────────
   void updateProfile({required String displayName, String? profilePicBase64}) {
     if (!isConnected) return;
     _socket.emit('updateProfile', {
       'displayName': displayName,
       'profilePicBase64': profilePicBase64,
     });
-    // Also update local presence registration
     _registerPresence();
   }
 
-  // ─── Message Forwarding ──────────────────────────────────────────
   void forwardMessage(ChatMessage original, List<String> targetUserIds) {
     if (!isConnected) return;
     for (final targetId in targetUserIds) {
@@ -468,22 +424,15 @@ class ChatService {
     }
   }
 
-  // ─── Reconnection with Exponential Backoff ──────────────────────
   void _handleDisconnect() {
     if (_isDisposed) return;
     _reconnectTimer?.cancel();
 
     if (_reconnectAttempts >= _maxReconnectAttempts) {
-      AppLogger.error(
-        'ChatService',
-        'Max reconnection attempts reached',
-        'gave up after $_maxReconnectAttempts attempts',
-      );
       return;
     }
 
     _reconnectAttempts++;
-    // Exponential backoff: 2s, 4s, 8s, 16s, etc (max 2 minutes)
     final delaySeconds =
         (_baseReconnectDelay.inSeconds * (1 << (_reconnectAttempts - 1))).clamp(
           0,
@@ -491,18 +440,8 @@ class ChatService {
         );
     final delay = Duration(seconds: delaySeconds);
 
-    AppLogger.warn(
-      'ChatService',
-      'Scheduling reconnect',
-      'attempt $_reconnectAttempts in ${delay.inSeconds}s',
-    );
-
     _reconnectTimer = Timer(delay, () {
       if (!_isDisposed && !isConnected) {
-        AppLogger.info('ChatService', 'Attempting auto-reconnect', {
-          'attempt': _reconnectAttempts,
-          'maxAttempts': _maxReconnectAttempts,
-        });
         connect();
       }
     });
@@ -514,7 +453,7 @@ class ChatService {
     _reconnectAttempts = 0;
     _stopPresenceHeartbeat();
     try {
-      _socket.disconnect();
+      if (!_isDisposed) _socket.disconnect();
     } catch (_) {}
   }
 
@@ -532,6 +471,6 @@ class ChatService {
     _reactionController.close();
     _groupController.close();
     _forwardedMessageController.close();
-    AppLogger.success('ChatService', 'Disposed');
+    _errorController.close();
   }
 }

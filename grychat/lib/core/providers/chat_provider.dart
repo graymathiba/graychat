@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -10,26 +10,18 @@ import '../models/chat_message.dart';
 import '../models/group.dart';
 import '../utils/app_logger.dart';
 import 'database_provider.dart';
-
-// ─── Firebase Auth State ──────────────────────────────────────────
 final currentUserProvider = StreamProvider<User?>((ref) {
   try {
     return FirebaseAuth.instance.authStateChanges();
   } catch (_) {
-    // Firebase not initialized — return empty stream
     return Stream<User?>.empty();
   }
 });
-
-// ─── Stable User ID ────────────────────────────────────────────────
 final localUserIdProvider = Provider<String>((ref) {
-  // Try Firebase Auth first (only if initialized)
   try {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) return user.uid;
   } catch (_) {}
-
-  // Try to load from Hive if initialized
   if (Hive.isBoxOpen(DatabaseService.settingsBoxName)) {
     final settingsBox = Hive.box<String>(DatabaseService.settingsBoxName);
     var storedId = settingsBox.get('local_user_id');
@@ -42,8 +34,6 @@ final localUserIdProvider = Provider<String>((ref) {
 
   return const Uuid().v4();
 });
-
-// ─── ChatService Singleton ─────────────────────────────────────────
 final chatServiceProvider = Provider<ChatService>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
   final localUserId = ref.watch(localUserIdProvider);
@@ -66,8 +56,6 @@ final chatServiceProvider = Provider<ChatService>((ref) {
 
   return service;
 });
-
-// ─── Connection State ──────────────────────────────────────────────
 final chatConnectionProvider =
     StateNotifierProvider<ChatConnectionNotifier, bool>((ref) {
       final chatService = ref.watch(chatServiceProvider);
@@ -90,9 +78,6 @@ class ChatConnectionNotifier extends StateNotifier<bool> {
     super.dispose();
   }
 }
-
-// ─── My Short Code ─────────────────────────────────────────────────
-// The server-assigned short code for the local user (e.g., "GRY-4A2F")
 final myShortCodeProvider = StateNotifierProvider<MyShortCodeNotifier, String>((
   ref,
 ) {
@@ -110,8 +95,6 @@ class MyShortCodeNotifier extends StateNotifier<String> {
       state = code;
     });
   }
-
-  // Deterministic fallback before server responds (mirrors backend logic)
   static String _deriveShortCode(String userId) {
     int hash = 0;
     for (int i = 0; i < userId.length; i++) {
@@ -128,9 +111,6 @@ class MyShortCodeNotifier extends StateNotifier<String> {
     super.dispose();
   }
 }
-
-// ─── Short Code Resolve Result ─────────────────────────────────────
-// One-shot result when resolving a short code to a userId
 final shortCodeResolveProvider =
     StateNotifierProvider<ShortCodeResolveNotifier, Map<String, dynamic>?>((
       ref,
@@ -150,7 +130,7 @@ class ShortCodeResolveNotifier extends StateNotifier<Map<String, dynamic>?> {
   }
 
   void resolve(String shortCode) {
-    state = null; // reset
+    state = null;
     _chatService.resolveShortCode(shortCode);
   }
 
@@ -162,9 +142,6 @@ class ShortCodeResolveNotifier extends StateNotifier<Map<String, dynamic>?> {
     super.dispose();
   }
 }
-
-// ─── User Presence ─────────────────────────────────────────────────
-// Tracks online/offline + display name + short code for all users
 final userPresenceProvider =
     StateNotifierProvider<
       UserPresenceNotifier,
@@ -183,12 +160,8 @@ class UserPresenceNotifier
   UserPresenceNotifier(ChatService chatService, this._dbService) : super({}) {
     _sub = chatService.presenceStream.listen((data) {
       final userId = data['userId'] as String;
-
-      // Merge with existing data so we don't lose displayName/profilePicBase64
-      // on offline events that may lack those fields.
       final existing = state[userId];
       final merged = <String, dynamic>{...?existing, ...data};
-      // If the incoming event has no displayName but we have one cached, keep it.
       if (merged['displayName'] == null &&
           existing != null &&
           existing['displayName'] != null) {
@@ -196,8 +169,6 @@ class UserPresenceNotifier
         merged['profilePicBase64'] = existing['profilePicBase64'];
       }
       state = {...state, userId: merged};
-
-      // Auto-update peer in local database to persist name changes
       if (merged['displayName'] != null) {
         final existingPeer = _dbService
             .getAllPeers()
@@ -221,8 +192,6 @@ class UserPresenceNotifier
     super.dispose();
   }
 }
-
-// ─── Typing Status (per room) ──────────────────────────────────────
 final typingStatusProvider =
     StateNotifierProvider.family<
       TypingStatusNotifier,
@@ -267,8 +236,6 @@ class TypingStatusNotifier extends StateNotifier<Map<String, bool>> {
     super.dispose();
   }
 }
-
-// ─── Chat Messages (per room) ──────────────────────────────────────
 final chatMessagesProvider =
     StateNotifierProvider.family<
       ChatMessagesNotifier,
@@ -306,8 +273,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
   void _loadFromHive() {
     try {
       final cached = _dbService.getChatMessagesByRoomId(_roomId);
-
-      // Validate all messages have correct roomId
       for (final msg in cached) {
         if (!msg.validateRoomId()) {
           AppLogger.error(
@@ -315,7 +280,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
             'Invalid message room ID',
             'Expected: ${ChatMessage.deriveRoomId(msg.senderId, msg.receiverId)}, Got: ${msg.roomId}',
           );
-          // Skip invalid messages
           continue;
         }
       }
@@ -334,7 +298,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     _messageSub = _chatService.messageStream.listen(
       (message) {
         try {
-          // Validate message before adding
           if (!message.validateRoomId()) {
             AppLogger.warn(
               'ChatMessages',
@@ -345,8 +308,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
           }
 
           if (message.roomId == _roomId) {
-            // ChatService already saved it to dbService. Deduplicate room and
-            // direct deliveries, which can occur during reconnection.
             if (state.every((existing) => existing.id != message.id)) {
               state = [...state, message];
             }
@@ -375,8 +336,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
           ? DateTime.parse(data['serverTimestamp'] as String)
           : null;
 
-      // ChatService already updated dbService
-
       state = state.map((msg) {
         if (msg.id == messageId) {
           return msg.copyWith(status: status, serverTimestamp: serverTs);
@@ -388,7 +347,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     _readReceiptSub = _chatService.readReceiptStream.listen((data) {
       if (data['roomId'] == _roomId) {
         final messageId = data['messageId'] as String;
-        // ChatService already updated dbService
         state = state.map((msg) {
           if (msg.id == messageId) return msg.copyWith(status: 'read');
           return msg;
@@ -400,7 +358,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
       final messageId = data['id'] as String?;
       if (messageId == null) return;
       AppLogger.warn('ChatMessages', 'Message error received', messageId);
-      // ChatService already updated dbService to 'failed'
       state = state.map((msg) {
         if (msg.id == messageId && msg.status != 'failed') {
           return msg.copyWith(status: 'failed');
@@ -551,8 +508,6 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     super.dispose();
   }
 }
-
-// ─── Dark Mode ─────────────────────────────────────────────────────
 final darkModeProvider = StateNotifierProvider<DarkModeNotifier, bool>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
   return DarkModeNotifier(dbService);
@@ -561,12 +516,14 @@ final darkModeProvider = StateNotifierProvider<DarkModeNotifier, bool>((ref) {
 class DarkModeNotifier extends StateNotifier<bool> {
   final DatabaseService _dbService;
   DarkModeNotifier(this._dbService) : super(false) {
-    _loadSaved();
-    // Re-check after database finishes initializing (async)
-    _pollForInit();
+    if (_dbService.isInitialized) {
+      _loadSaved();
+    } else {
+      _waitForInit();
+    }
   }
 
-  Future<void> _pollForInit() async {
+  Future<void> _waitForInit() async {
     for (var i = 0; i < 50; i++) {
       await Future.delayed(const Duration(milliseconds: 100));
       if (_dbService.isInitialized) {
@@ -594,8 +551,6 @@ class DarkModeNotifier extends StateNotifier<bool> {
     } catch (_) {}
   }
 }
-
-// ─── Conversation List ─────────────────────────────────────────────
 final conversationListProvider =
     StateNotifierProvider<ConversationListNotifier, List<Map<String, dynamic>>>(
       (ref) {
@@ -636,8 +591,6 @@ class ConversationListNotifier
     super.dispose();
   }
 }
-
-// ─── Group Provider ─────────────────────────────────────────────────
 final groupsProvider = StateNotifierProvider<GroupsNotifier, List<Group>>((
   ref,
 ) {
@@ -664,17 +617,17 @@ class GroupsNotifier extends StateNotifier<List<Group>> {
 
   void _handleGroupEvent(Map<String, dynamic> event) {
     final type = event['event'] as String? ?? event['type'] as String?;
-    final data = event['data'] as Map<String, dynamic>?;
-    if (data == null) return;
 
     switch (type) {
       case 'created':
-        final group = Group.fromJson(data);
+        final groupData = Map<String, dynamic>.from(event)..remove('event');
+        final group = Group.fromJson(groupData);
         _dbService.addGroup(group);
         state = [...state, group];
         break;
       case 'info':
-        final group = Group.fromJson(data);
+        final groupData = Map<String, dynamic>.from(event)..remove('event');
+        final group = Group.fromJson(groupData);
         _dbService.addGroup(group);
         final idx = state.indexWhere((g) => g.id == group.id);
         if (idx >= 0) {
@@ -684,8 +637,8 @@ class GroupsNotifier extends StateNotifier<List<Group>> {
         }
         break;
       case 'memberLeft':
-        final groupId = data['groupId'] as String?;
-        final userId = data['userId'] as String?;
+        final groupId = event['groupId'] as String?;
+        final userId = event['userId'] as String?;
         if (groupId != null && userId != null) {
           final existing = _dbService.getGroupById(groupId);
           if (existing != null) {

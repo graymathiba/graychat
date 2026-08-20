@@ -1,11 +1,13 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/app_config.dart';
 import 'core/database/hive_adapters.dart';
@@ -15,6 +17,7 @@ import 'core/network/call_service.dart';
 import 'core/providers/call_provider.dart';
 import 'core/providers/database_provider.dart';
 import 'core/providers/chat_provider.dart';
+import 'core/utils/crash_report_service.dart';
 
 import 'ui/screens/call_screen.dart';
 import 'ui/screens/home_screen.dart';
@@ -28,13 +31,12 @@ bool firebaseAvailable = false;
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  print('[FCM] Background message: ${message.messageId}');
+
 }
 
 File get _crashLog => File('${Directory.systemTemp.path}/grychat_crash_${Platform.environment['APP_PROFILE'] ?? 'main'}.log');
 
 void _logCrash(Object error, StackTrace stack) {
-  // Suppress known transient errors during multi-instance failover
   if (error.toString().contains('PathAccessException') ||
       error.toString().contains('errno = 33') ||
       error.toString().contains('errno = 32')) {
@@ -42,7 +44,7 @@ void _logCrash(Object error, StackTrace stack) {
   }
   final msg = '[${DateTime.now()}] CRASH: $error\n$stack\n---\n';
   try { _crashLog.writeAsStringSync(msg, mode: FileMode.append); } catch (_) {}
-  print('CRASH LOGGED: $error');
+  crashReportService.reportError(error, stack);
 }
 
 void main() async {
@@ -50,89 +52,84 @@ void main() async {
 }
 
 void _mainInner() async {
-  print('[Init] step: binding');
+
   WidgetsFlutterBinding.ensureInitialized();
-  print('[Init] step: media_kit');
+
   MediaKit.ensureInitialized();
-  print('[Init] step: media_kit done');
 
-  final skipFirebase = const String.fromEnvironment('SKIP_FIREBASE', defaultValue: '') == 'true';
-  final firebaseAppId = const String.fromEnvironment('FIREBASE_APP_ID');
-  if (skipFirebase) {
-    print('[Init] SKIP_FIREBASE=true — skipping Firebase init');
-  } else if (firebaseAppId.contains(':web:')) {
-    print('[Init] Firebase app ID is web-only — skipping Firebase init');
-  } else {
+  crashReportService.setupErrorHandlers();
+
+  try {
+
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+
     try {
-      print('[Init] step: firebase');
-      await Firebase.initializeApp(
-        options: FirebaseOptions(
-          apiKey: const String.fromEnvironment('FIREBASE_API_KEY'),
-          authDomain: const String.fromEnvironment('FIREBASE_AUTH_DOMAIN'),
-          projectId: const String.fromEnvironment('FIREBASE_PROJECT_ID'),
-          storageBucket: const String.fromEnvironment('FIREBASE_STORAGE_BUCKET'),
-          messagingSenderId: const String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID'),
-          appId: firebaseAppId,
-        ),
-      );
-      print('[Init] step: firebase done');
-      
-      // Initialize Firebase Crashlytics
-      try {
-        await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-        FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-        print('[Init] step: crashlytics done');
-      } catch (e) {
-        print('[Init] Crashlytics init failed: $e');
-      }
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
 
-      // Initialize Firebase Cloud Messaging
-      try {
-        final messaging = FirebaseMessaging.instance;
-        final settings = await messaging.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        print('[Init] FCM permission: ${settings.authorizationStatus}');
-
-        final token = await messaging.getToken();
-        print('[Init] FCM token: ${token?.substring(0, 20)}...');
-
-        // Listen for token refresh
-        messaging.onTokenRefresh.listen((newToken) {
-          print('[Init] FCM token refreshed: ${newToken.substring(0, 20)}...');
-        });
-
-        // Handle background messages
-        FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-        print('[Init] step: fcm done');
-      } catch (e) {
-        print('[Init] FCM init failed: $e');
-      }
-      
-      firebaseAvailable = true;
     } catch (e) {
-      print('[Init] Firebase init failed (continue as guest): $e');
+
     }
+    try {
+      final messaging = FirebaseMessaging.instance;
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      final token = await messaging.getToken();
+
+      messaging.onTokenRefresh.listen((newToken) {
+
+      });
+
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    } catch (e) {
+
+    }
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null && currentUser.isAnonymous) {
+
+      await FirebaseAuth.instance.signOut();
+    }
+
+    firebaseAvailable = true;
+
+    final authUser = FirebaseAuth.instance.currentUser;
+    if (authUser != null && !authUser.isAnonymous) {
+      crashReportService.setUserId(authUser.uid);
+    }
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null && !user.isAnonymous) {
+        crashReportService.setUserId(user.uid);
+      } else {
+        crashReportService.setUserId('');
+      }
+    });
+  } catch (e) {
+
   }
 
   try {
-    print('[Init] step: supabase');
+
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabaseAnonKey,
     );
-    print('[Init] step: supabase done');
+
   } catch (e) {
-    print('[Init] Supabase init failed (continue as guest): $e');
+
   }
-  
+
   final envProfile = Platform.environment['APP_PROFILE'];
   const dartDefineProfile = String.fromEnvironment('APP_PROFILE', defaultValue: '');
-  
-  final rawProfile = (envProfile != null && envProfile.trim().isNotEmpty) 
-      ? envProfile.trim() 
+
+  final rawProfile = (envProfile != null && envProfile.trim().isNotEmpty)
+      ? envProfile.trim()
       : (dartDefineProfile.trim().isNotEmpty ? dartDefineProfile.trim() : 'main_peer');
 
   Hive.registerAdapter(PeerModelAdapter());
@@ -140,7 +137,7 @@ void _mainInner() async {
   Hive.registerAdapter(UserProfileAdapter());
   Hive.registerAdapter(ChatMessageAdapter());
   Hive.registerAdapter(GroupAdapter());
-  
+
   FlutterError.onError = (details) {
     _logCrash(details.exception, details.stack ?? StackTrace.empty);
     FlutterError.presentError(details);
@@ -222,9 +219,6 @@ class _MyAppState extends ConsumerState<MyApp> {
         );
       } else if (!isRinging && wasRinging && _incomingCallShowing &&
           info?.state != CallState.connecting) {
-        // Pop if caller hung up or call rejected — but NOT if transitioning
-        // to connecting (accept), because IncomingCallPage handles its own
-        // pushReplacement to CallScreen.
         _incomingCallShowing = false;
         if (navigatorKey.currentState?.canPop() == true) {
           navigatorKey.currentState?.pop();
@@ -266,19 +260,19 @@ class _MyAppState extends ConsumerState<MyApp> {
       home: dbInitState.when(
         data: (_) {
           if (!firebaseAvailable) {
-            print('[Auth] Firebase not available — bypassing login');
-            return const HomeScreen();
+
+            return const LoginScreen();
           }
           return Consumer(builder: (context, ref, _) {
             final authState = ref.watch(currentUserProvider);
             return authState.when(
               data: (user) {
-                if (user == null) return const LoginScreen();
+                if (user == null || user.isAnonymous) return const LoginScreen();
                 return const HomeScreen();
               },
               loading: () => const SplashScreen(message: 'Checking login...'),
               error: (err, _) {
-                print('[Auth] Error: $err');
+
                 return const LoginScreen();
               },
             );

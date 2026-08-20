@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -255,8 +255,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               alignment: Alignment.center,
                               child: Text(
                                 (resolvedUser!['displayName'] as String? ??
-                                        '?')[0]
-                                    .toUpperCase(),
+                                        '?').isNotEmpty
+                                    ? (resolvedUser!['displayName'] as String)[0]
+                                        .toUpperCase()
+                                    : '?',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -517,7 +519,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           final groupId = const Uuid().v4();
                           final groupName = groupNameController.text.trim();
                           final memberIds = selectedMemberIds.toList();
-                          
+
                           final newGroup = Group(
                             id: groupId,
                             name: groupName,
@@ -525,7 +527,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             memberIds: [localUserId, ...memberIds],
                             createdAt: DateTime.now(),
                           );
-                          
+
                           ref
                               .read(groupsProvider.notifier)
                               .createGroup(
@@ -746,8 +748,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       }
     }
-
-    // Fallback colored initial avatar
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
     final colors = [
       const Color(0xFF1B4EBA),
@@ -789,15 +789,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final userName = userProfile != null
         ? '${userProfile.firstName} ${userProfile.lastName}'
         : 'User';
-
-    // Filter conversations based on search query
     final filteredConversations = conversations.where((conv) {
       if (_searchQuery.isEmpty) return true;
       final query = _searchQuery.toLowerCase();
       final peerId = conv['peerId'] as String;
       final lastMsg = conv['lastMessage'] as ChatMessage;
-
-      // Try to find peer name from peers list
       final peerMatch = peers.where((p) => p.id == peerId);
       final peerName = peerMatch.isNotEmpty
           ? peerMatch.first.deviceName
@@ -807,8 +803,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           lastMsg.content.toLowerCase().contains(query) ||
           peerId.toLowerCase().contains(query);
     }).toList();
-
-    // Filter groups based on search query
     final filteredGroups = groups.where((group) {
       if (_searchQuery.isEmpty) return true;
       return group.name.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -868,7 +862,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      // Drawer
       drawer: Drawer(
         width: MediaQuery.of(context).size.width,
         child: Row(
@@ -1086,7 +1079,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       body: Column(
         children: [
-          // Connection state bar
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
@@ -1162,20 +1154,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       color: Color(0xFFF1F3F7),
                     ),
                     itemBuilder: (context, index) {
-                      // Groups first, then conversations
                       if (index < filteredGroups.length) {
                         final group = filteredGroups[index];
                         return _buildGroupTile(group);
                       }
-                      
+
                       final convIndex = index - filteredGroups.length;
                       final conv = filteredConversations[convIndex];
                       final roomId = conv['roomId'] as String;
                       final peerId = conv['peerId'] as String;
                       final lastMsg = conv['lastMessage'] as ChatMessage;
                       final unreadCount = conv['unreadCount'] as int;
-
-                      // Resolve peer display name from presence map first, then local peers DB
                       final presenceData = presenceMap[peerId];
                       final peerMatch = peers.where((p) => p.id == peerId);
                       final peerName =
@@ -1188,13 +1177,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           (peerMatch.isNotEmpty
                               ? peerMatch.first.profilePicBase64
                               : null);
-
-                      // Presence
                       final presence = presenceMap[peerId];
                       final isOnline =
                           presence != null && presence['status'] == 'online';
-
-                      // Format last message
                       final subtext = lastMsg.senderId == localUserId
                           ? 'You: ${lastMsg.content}'
                           : lastMsg.content;

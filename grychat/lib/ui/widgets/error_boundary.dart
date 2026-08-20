@@ -1,12 +1,4 @@
-import 'package:flutter/material.dart';
-
-/// Error boundary widget that catches exceptions and displays an error UI
-/// 
-/// Usage:
-///   ErrorBoundary(
-///     child: MyWidget(),
-///     onError: (error, stackTrace) => print('Error: $error'),
-///   )
+﻿import 'package:flutter/material.dart';
 class ErrorBoundary extends StatefulWidget {
   final Widget child;
 
@@ -21,6 +13,15 @@ class ErrorBoundary extends StatefulWidget {
 
 class _ErrorBoundaryState extends State<ErrorBoundary> {
   dynamic _error;
+  VoidCallback? _retryCallback;
+
+  @override
+  void initState() {
+    super.initState();
+    _retryCallback = () {
+      setState(() => _error = null);
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +46,7 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () => setState(() => _error = null),
+                onPressed: _retryCallback,
                 child: const Text('Try Again'),
               ),
             ],

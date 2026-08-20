@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: grychat-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npx tsx index.ts
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SMTP_USER
+        value: denzelmathiba2@gmail.com
+      - key: SMTP_APP_PASSWORD
+        sync: false
+      - key: CRASH_REPORT_EMAIL
+        value: denzelmathiba2@gmail.com
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: FIREBASE_PROJECT_ID
+        value: graychat-db6a0

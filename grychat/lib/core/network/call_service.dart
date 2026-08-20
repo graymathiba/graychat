@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../config/app_config.dart';
@@ -377,23 +377,19 @@ class CallService {
       _durationTimer = null;
       _callDuration = Duration.zero;
 
-      // 1. Detach streams from renderers first (stops the video surface)
       try {
         _localRenderer.srcObject = null;
         _remoteRenderer.srcObject = null;
       } catch (_) {}
 
-      // 2. Stop local tracks
       try {
         _localStream?.getTracks().forEach((track) {
           try { track.stop(); } catch (_) {}
         });
       } catch (_) {}
 
-      // 3. Close peer connection
       try { _peerConnection?.close(); } catch (_) {}
 
-      // 4. Null all references
       _localStream = null;
       _remoteStream = null;
       _peerConnection = null;
@@ -406,14 +402,13 @@ class CallService {
 
   void dispose() {
     _cleanup();
-    _durationTimer?.cancel();
     try {
       _localRenderer.dispose();
       _remoteRenderer.dispose();
     } catch (_) {}
     _localRendererInitialized = false;
     _remoteRendererInitialized = false;
-    _callInfoController.close();
-    _videoStateController.close();
+    if (!_callInfoController.isClosed) _callInfoController.close();
+    if (!_videoStateController.isClosed) _videoStateController.close();
   }
 }
