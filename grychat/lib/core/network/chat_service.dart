@@ -10,7 +10,7 @@ class ChatService {
   final String localUserId;
   final DatabaseService? databaseService;
 
-  late io.Socket _socket;
+  io.Socket? _socket;
   bool _isDisposed = false;
   bool _isConnecting = false;
   Timer? _reconnectTimer;
@@ -32,6 +32,8 @@ class ChatService {
   final _shortCodeController = StreamController<String>.broadcast();
   final _resolveResultController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _searchResultController =
+      StreamController<List<Map<String, dynamic>>>.broadcast();
   final _reactionController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _groupController = StreamController<Map<String, dynamic>>.broadcast();
@@ -55,6 +57,8 @@ class ChatService {
   Stream<String> get shortCodeStream => _shortCodeController.stream;
   Stream<Map<String, dynamic>> get resolveResultStream =>
       _resolveResultController.stream;
+  Stream<List<Map<String, dynamic>>> get searchResultStream =>
+      _searchResultController.stream;
   Stream<Map<String, dynamic>> get reactionStream => _reactionController.stream;
   Stream<Map<String, dynamic>> get groupStream => _groupController.stream;
   Stream<ChatMessage> get forwardedMessageStream =>
@@ -64,7 +68,7 @@ class ChatService {
   bool get isConnected {
     if (_isDisposed) return false;
     try {
-      return _socket.connected;
+      return _socket?.connected ?? false;
     } catch (_) {
       return false;
     }
@@ -72,7 +76,8 @@ class ChatService {
 
   io.Socket get socket {
     assert(!_isDisposed, 'ChatService is disposed');
-    return _socket;
+    if (_socket == null) throw StateError('Socket not connected');
+    return _socket!;
   }
 
   Future<void> connect() async {
@@ -225,6 +230,13 @@ class ChatService {
         _resolveResultController.add(Map<String, dynamic>.from(data as Map));
       });
 
+      _socket.on('searchUsersResult', (data) {
+        final results = (data['results'] as List?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ?? [];
+        _searchResultController.add(results);
+      });
+
       _socket.on('reaction', (data) {
         _reactionController.add(Map<String, dynamic>.from(data as Map));
       });
@@ -309,7 +321,12 @@ class ChatService {
       return;
     }
     if (!isConnected) return;
-    _socket.emit('resolveShortCode', {'shortCode': normalizedCode});
+    _socket!.emit('resolveShortCode', {'shortCode': normalizedCode});
+  }
+
+  void searchUsers(String query) {
+    if (!isConnected || query.trim().length < 2) return;
+    _socket!.emit('searchUsers', {'query': query.trim()});
   }
 
   void joinRoom(String roomId) {
@@ -453,7 +470,7 @@ class ChatService {
     _reconnectAttempts = 0;
     _stopPresenceHeartbeat();
     try {
-      if (!_isDisposed) _socket.disconnect();
+      if (!_isDisposed) _socket?.disconnect();
     } catch (_) {}
   }
 
@@ -468,6 +485,7 @@ class ChatService {
     _presenceController.close();
     _shortCodeController.close();
     _resolveResultController.close();
+    _searchResultController.close();
     _reactionController.close();
     _groupController.close();
     _forwardedMessageController.close();

@@ -39,6 +39,89 @@ if (supabaseUrl && supabaseKey) {
   supabase = createClient(supabaseUrl, supabaseKey);
 }
 
+function generateShortCodeFromHash(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    const char = userId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  let code = Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+  return `GRY-${code}`;
+}
+
+async function getOrCreatePermanentShortCode(userId: string): Promise<string> {
+  if (!supabase) return generateShortCodeFromHash(userId);
+  const db = supabase as any;
+
+  const { data: existing } = await db
+    .from('user_profiles')
+    .select('short_code')
+    .eq('user_id', userId)
+    .single();
+
+  if (existing?.short_code) return existing.short_code;
+
+  const code = generateShortCodeFromHash(userId);
+  const { error } = await db
+    .from('user_profiles')
+    .upsert({ user_id: userId, short_code: code }, { onConflict: 'user_id' });
+
+  if (error) {
+    console.error('Failed to persist short code:', error.message);
+    return code;
+  }
+  return code;
+}
+
+async function upsertUserProfile(userId: string, shortCode: string, displayName: string, email: string, profilePicBase64: string): Promise<void> {
+  if (!supabase) return;
+  const db = supabase as any;
+  try {
+    await db
+      .from('user_profiles')
+      .upsert({
+        user_id: userId,
+        short_code: shortCode,
+        display_name: displayName,
+        email: email,
+        profile_pic_base64: profilePicBase64,
+      }, { onConflict: 'user_id' });
+  } catch (err: any) {
+    console.error('Failed to upsert user profile:', err.message);
+  }
+}
+
+async function searchUsers(query: string, currentUserId: string): Promise<any[]> {
+  if (!supabase) return [];
+  const db = supabase as any;
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const { data: byEmail } = await db
+    .from('user_profiles')
+    .select('user_id, email, display_name, short_code, profile_pic_base64')
+    .ilike('email', `%${normalizedQuery}%`)
+    .neq('user_id', currentUserId)
+    .limit(20);
+
+  const { data: byCode } = await db
+    .from('user_profiles')
+    .select('user_id, email, display_name, short_code, profile_pic_base64')
+    .ilike('short_code', `%${normalizedQuery}%`)
+    .neq('user_id', currentUserId)
+    .limit(20);
+
+  const seen = new Set<string>();
+  const results: any[] = [];
+  for (const u of [...(byEmail || []), ...(byCode || [])]) {
+    if (!seen.has(u.user_id)) {
+      seen.add(u.user_id);
+      results.push(u);
+    }
+  }
+  return results;
+}
+
 async function persistMessage(message: any): Promise<void> {
   if (!supabase) return;
   
@@ -161,25 +244,6 @@ const groups = new Map<string, {
   createdAt: string;
 }>();
 
-function generateShortCode(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    const char = userId.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  let code = Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
-  let fullCode = `GRY-${code}`;
-  let attempts = 0;
-  while (shortCodeToUserId.has(fullCode) && shortCodeToUserId.get(fullCode) !== userId && attempts < 100) {
-    hash = (hash + 1) | 0;
-    code = Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
-    fullCode = `GRY-${code}`;
-    attempts++;
-  }
-  return fullCode;
-}
-
 function deriveRoomId(userA: string, userB: string): string {
   return [userA, userB].sort().join('_');
 }
@@ -233,7 +297,6 @@ io.on('connection', (socket) => {
 
       const uid = data.userId || userId;
       socket.data.registeredUserId = uid;
-      const shortCode = generateShortCode(uid);
       
       const displayName = typeof data.deviceName === 'string' 
         ? data.deviceName.slice(0, MAX_DISPLAY_NAME_LENGTH) 
@@ -243,18 +306,31 @@ io.on('connection', (socket) => {
         ? data.profilePicBase64 
         : '';
 
-      onlineUsers.set(uid, { socketId: socket.id, shortCode, displayName, profilePicBase64 });
-      shortCodeToUserId.set(shortCode, uid);
+      const email = socket.data.user?.email || '';
 
-      socket.emit('myShortCode', { shortCode });
+      getOrCreatePermanentShortCode(uid).then((shortCode) => {
+        onlineUsers.set(uid, { socketId: socket.id, shortCode, displayName, profilePicBase64 });
+        shortCodeToUserId.set(shortCode, uid);
 
-      socket.broadcast.emit('userPresence', {
-        userId: uid,
-        shortCode,
-        displayName,
-        profilePicBase64,
-        status: 'online',
-        lastSeen: new Date().toISOString(),
+        upsertUserProfile(uid, shortCode, displayName, email, profilePicBase64);
+
+        socket.emit('myShortCode', { shortCode });
+
+        socket.broadcast.emit('userPresence', {
+          userId: uid,
+          shortCode,
+          displayName,
+          profilePicBase64,
+          status: 'online',
+          lastSeen: new Date().toISOString(),
+        });
+
+        io.emit('onlineUsersList', getOnlineUsers());
+      }).catch(() => {
+        const shortCode = generateShortCodeFromHash(uid);
+        onlineUsers.set(uid, { socketId: socket.id, shortCode, displayName, profilePicBase64 });
+        shortCodeToUserId.set(shortCode, uid);
+        socket.emit('myShortCode', { shortCode });
       });
 
       io.emit('onlineUsersList', getOnlineUsers());
@@ -283,9 +359,49 @@ io.on('connection', (socket) => {
         displayName: info?.displayName || '',
         profilePicBase64: info?.profilePicBase64 || '',
       });
+    } else if (supabase) {
+      const db = supabase as any;
+      db
+        .from('user_profiles')
+        .select('user_id, display_name, profile_pic_base64, email')
+        .ilike('short_code', code)
+        .single()
+        .then(({ data: profile }: any) => {
+          if (profile) {
+            socket.emit('resolveShortCodeResult', {
+              found: true,
+              shortCode: code,
+              userId: profile.user_id,
+              displayName: profile.display_name || profile.email || 'User',
+              profilePicBase64: profile.profile_pic_base64 || '',
+            });
+          } else {
+            socket.emit('resolveShortCodeResult', { found: false, shortCode: code });
+          }
+        })
+        .catch(() => {
+          socket.emit('resolveShortCodeResult', { found: false, shortCode: code });
+        });
     } else {
       socket.emit('resolveShortCodeResult', { found: false, shortCode: code });
     }
+  });
+
+  socket.on('searchUsers', (data: any) => {
+    if (!data || typeof data !== 'object') {
+      socket.emit('searchUsersResult', { results: [] });
+      return;
+    }
+    const query = typeof data.query === 'string' ? data.query.trim() : '';
+    if (!query || query.length < 2) {
+      socket.emit('searchUsersResult', { results: [] });
+      return;
+    }
+    searchUsers(query, userId).then((results) => {
+      socket.emit('searchUsersResult', { results });
+    }).catch(() => {
+      socket.emit('searchUsersResult', { results: [] });
+    });
   });
 
   socket.on('join-room', (roomId: string) => {

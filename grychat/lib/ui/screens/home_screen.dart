@@ -152,6 +152,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     String? errorText;
     bool isSearching = false;
     Map<String, dynamic>? resolvedUser;
+    List<Map<String, dynamic>> searchResults = [];
 
     showDialog(
       context: context,
@@ -176,7 +177,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Enter a friend\'s invite code (e.g. GRY-4A2F)',
+                    'Enter a GryCode or email to find a friend',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
                   ),
                   const SizedBox(height: 14),
@@ -186,21 +187,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     textCapitalization: TextCapitalization.characters,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: 4,
+                      letterSpacing: 2,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'GRY-????',
-                      hintStyle: const TextStyle(
-                        color: Color(0xFFC4C8D3),
-                        letterSpacing: 4,
+                      hintText: 'GRY-???? or email',
+                      hintStyle: TextStyle(
+                        color: const Color(0xFFC4C8D3),
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.normal,
                       ),
                       filled: true,
                       fillColor: const Color(0xFFF4F6FA),
                       errorText: errorText,
                       prefixIcon: const Icon(
-                        Icons.tag,
+                        Icons.search,
                         color: Color(0xFF1B4EBA),
                       ),
                       border: OutlineInputBorder(
@@ -219,6 +221,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       setDialogState(() {
                         errorText = null;
                         resolvedUser = null;
+                        searchResults = [];
                       });
                     },
                   ),
@@ -232,68 +235,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   if (resolvedUser != null && resolvedUser!['found'] == true)
                     Padding(
                       padding: const EdgeInsets.only(top: 14),
+                      child: _buildUserCard(resolvedUser!, ctx, setDialogState),
+                    ),
+                  if (searchResults.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 14),
                       child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0F7FF),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: const Color(
-                              0xFF1B4EBA,
-                            ).withValues(alpha: 0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF1B4EBA),
-                                shape: BoxShape.circle,
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                (resolvedUser!['displayName'] as String? ??
-                                        '?').isNotEmpty
-                                    ? (resolvedUser!['displayName'] as String)[0]
-                                        .toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    resolvedUser!['displayName'] as String? ??
-                                        'Unknown',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onSurface,
-                                    ),
-                                  ),
-                                  Text(
-                                    resolvedUser!['shortCode'] as String? ?? '',
-                                    style: TextStyle(
-                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              Icons.check_circle,
-                              color: Color(0xFF10B981),
-                              size: 20,
-                            ),
-                          ],
+                        constraints: const BoxConstraints(maxHeight: 250),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: searchResults.length,
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _buildUserCard(searchResults[index], ctx, setDialogState),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -310,73 +267,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     style: TextStyle(color: Color(0xFF7E8494)),
                   ),
                 ),
-                if (resolvedUser != null && resolvedUser!['found'] == true)
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B4EBA),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B4EBA),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    onPressed: () {
-                      final targetId = resolvedUser!['userId'] as String;
-                      _resolveSub?.cancel();
-                      Navigator.pop(ctx);
-                      final localUserId = ref.read(localUserIdProvider);
-                      final roomId = ChatMessage.deriveRoomId(
-                        localUserId,
-                        targetId,
-                      );
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ChatScreen(
-                            peerId: targetId,
-                            roomId: roomId,
-                            peerName: resolvedUser!['displayName'] as String?,
-                          ),
-                        ),
-                      );
-                    },
-                    child: const Text('Chat'),
-                  )
-                else
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B4EBA),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: isSearching
-                        ? null
-                        : () {
-                            final code = _shortCodeController.text
-                                .trim()
-                                .toUpperCase();
-                            if (code.length < 4) {
-                              setDialogState(
-                                () => errorText = 'Enter a valid GRY-XXXX code',
-                              );
-                              return;
-                            }
+                  ),
+                  onPressed: isSearching
+                      ? null
+                      : () {
+                          final query = _shortCodeController.text.trim();
+                          if (query.length < 2) {
+                            setDialogState(
+                              () => errorText = 'Enter a GryCode or email (min 2 chars)',
+                            );
+                            return;
+                          }
+                          setDialogState(() {
+                            isSearching = true;
+                            errorText = null;
+                            resolvedUser = null;
+                            searchResults = [];
+                          });
+                          Future.delayed(const Duration(seconds: 8), () {
+                            if (!ctx.mounted || !isSearching) return;
                             setDialogState(() {
-                              isSearching = true;
-                              errorText = null;
+                              isSearching = false;
+                              errorText = 'Search timed out. Try again.';
                             });
-                            Future<
-                              void
-                            >.delayed(const Duration(seconds: 5), () {
-                              if (!ctx.mounted || !isSearching) return;
-                              setDialogState(() {
-                                isSearching = false;
-                                errorText =
-                                    'Search timed out. Check the server connection and try again.';
-                              });
-                            });
-                            _resolveSub?.cancel();
+                          });
+                          _resolveSub?.cancel();
+
+                          if (query.contains('@')) {
+                            _resolveSub = ref
+                                .read(chatServiceProvider)
+                                .searchResultStream
+                                .listen((results) {
+                                  _resolveSub?.cancel();
+                                  setDialogState(() {
+                                    isSearching = false;
+                                    searchResults = results;
+                                    if (results.isEmpty) {
+                                      errorText = 'No users found with that email.';
+                                    }
+                                  });
+                                });
+                            ref.read(chatServiceProvider).searchUsers(query);
+                          } else {
                             _resolveSub = ref
                                 .read(chatServiceProvider)
                                 .resolveResultStream
@@ -386,22 +325,101 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     isSearching = false;
                                     resolvedUser = result;
                                     if (result['found'] == false) {
-                                      errorText =
-                                          'No user found with that code. Are they online?';
+                                      errorText = 'No user found. Are they online?';
                                     }
                                   });
                                 });
-                            ref
-                                .read(chatServiceProvider)
-                                .resolveShortCode(code);
-                          },
-                    child: const Text('Find'),
-                  ),
+                            ref.read(chatServiceProvider).resolveShortCode(query.toUpperCase());
+                          }
+                        },
+                  child: const Text('Find'),
+                ),
               ],
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildUserCard(Map<String, dynamic> user, BuildContext ctx, StateSetter setDialogState) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F7FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF1B4EBA).withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: Color(0xFF1B4EBA),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              (user['displayName'] as String? ?? '?').isNotEmpty
+                  ? (user['displayName'] as String)[0].toUpperCase()
+                  : '?',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user['displayName'] as String? ?? 'Unknown',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  user['shortCode'] as String? ?? '',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              final targetId = user['userId'] as String;
+              _resolveSub?.cancel();
+              Navigator.pop(ctx);
+              final localUserId = ref.read(localUserIdProvider);
+              final roomId = ChatMessage.deriveRoomId(localUserId, targetId);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(
+                    peerId: targetId,
+                    roomId: roomId,
+                    peerName: user['displayName'] as String?,
+                  ),
+                ),
+              );
+            },
+            child: const Icon(
+              Icons.arrow_forward_ios,
+              color: Color(0xFF1B4EBA),
+              size: 18,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
