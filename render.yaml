@@ -3,9 +3,7 @@ services:
     name: grychat-backend
     runtime: node
     plan: free
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npx tsx index.ts
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: PORT
         value: 3000
