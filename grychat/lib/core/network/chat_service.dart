@@ -40,6 +40,10 @@ class ChatService {
   final _forwardedMessageController = StreamController<ChatMessage>.broadcast();
   final _errorController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _messageHistoryController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _usernameCheckController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   ChatService({
     required this.serverUrl,
@@ -64,6 +68,8 @@ class ChatService {
   Stream<ChatMessage> get forwardedMessageStream =>
       _forwardedMessageController.stream;
   Stream<Map<String, dynamic>> get errorStream => _errorController.stream;
+  Stream<Map<String, dynamic>> get messageHistoryStream => _messageHistoryController.stream;
+  Stream<Map<String, dynamic>> get usernameCheckStream => _usernameCheckController.stream;
 
   bool get isConnected {
     if (_isDisposed) return false;
@@ -85,21 +91,16 @@ class ChatService {
     _isConnecting = true;
 
     try {
-      String? token;
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        token = await user?.getIdToken();
-      } catch (_) {}
-
       _socket = io.io(serverUrl, {
         'transports': ['websocket'],
         'autoConnect': false,
         'maxHttpBufferSize': 1e6,
-        if (token != null) 'auth': {'token': token},
       });
 
-      _socket.on('connect', (_) {
-        AppLogger.success('ChatService', 'Connected', {'socketId': _socket.id});
+      final s = _socket!;
+
+      s.on('connect', (_) {
+        AppLogger.success('ChatService', 'Connected', {'socketId': s.id});
         _isConnecting = false;
         _reconnectAttempts = 0;
         _connectionController.add(true);
@@ -108,26 +109,26 @@ class ChatService {
         _retryPendingMessages();
       });
 
-      _socket.on('disconnect', (_) {
+      s.on('disconnect', (_) {
         AppLogger.warn('ChatService', 'Disconnected');
         _connectionController.add(false);
         _stopPresenceHeartbeat();
         _handleDisconnect();
       });
 
-      _socket.on('connect_error', (error) {
+      s.on('connect_error', (error) {
         AppLogger.error('ChatService', 'Connection error', error);
         _isConnecting = false;
         _connectionController.add(false);
         _handleDisconnect();
       });
 
-      _socket.on('myShortCode', (data) {
+      s.on('myShortCode', (data) {
         final code = data['shortCode'] as String;
         _shortCodeController.add(code);
       });
 
-      _socket.on('onlineUsersList', (data) {
+      s.on('onlineUsersList', (data) {
         final list = (data as List)
             .map((user) => Map<String, dynamic>.from(user as Map))
             .toList();
@@ -155,7 +156,7 @@ class ChatService {
         }
       });
 
-      _socket.on('newMessage', (data) {
+      s.on('newMessage', (data) {
         final message = ChatMessage.fromJson(
           Map<String, dynamic>.from(data as Map),
         );
@@ -172,7 +173,7 @@ class ChatService {
         _messageController.add(message);
       });
 
-      _socket.on('messageAck', (data) {
+      s.on('messageAck', (data) {
         final messageId = data['id'] as String;
         final status = data['status'] as String;
         final serverTs = data['serverTimestamp'] != null
@@ -186,7 +187,7 @@ class ChatService {
         _ackController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      _socket.on('messageError', (data) {
+      s.on('messageError', (data) {
         final messageData = Map<String, dynamic>.from(data as Map);
         final messageId = messageData['id'] as String?;
         if (messageId != null) {
@@ -195,11 +196,11 @@ class ChatService {
         _errorController.add(messageData);
       });
 
-      _socket.on('typingStatus', (data) {
+      s.on('typingStatus', (data) {
         _typingController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      _socket.on('readReceipt', (data) {
+      s.on('readReceipt', (data) {
         final messageId = data['messageId'] as String?;
         if (messageId != null) {
           databaseService?.updateChatMessageStatus(messageId, 'read');
@@ -207,7 +208,7 @@ class ChatService {
         _readReceiptController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      _socket.on('userPresence', (data) {
+      s.on('userPresence', (data) {
         final presence = Map<String, dynamic>.from(data as Map);
         final userId = presence['userId'] as String?;
         if (userId != null) {
@@ -226,41 +227,41 @@ class ChatService {
         _presenceController.add(presence);
       });
 
-      _socket.on('resolveShortCodeResult', (data) {
+      s.on('resolveShortCodeResult', (data) {
         _resolveResultController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      _socket.on('searchUsersResult', (data) {
+      s.on('searchUsersResult', (data) {
         final results = (data['results'] as List?)
             ?.map((e) => Map<String, dynamic>.from(e as Map))
             .toList() ?? [];
         _searchResultController.add(results);
       });
 
-      _socket.on('reaction', (data) {
+      s.on('reaction', (data) {
         _reactionController.add(Map<String, dynamic>.from(data as Map));
       });
 
-      _socket.on('groupCreated', (data) {
+      s.on('groupCreated', (data) {
         _groupController.add({
           ...Map<String, dynamic>.from(data as Map),
           'event': 'created',
         });
       });
-      _socket.on('groupInfo', (data) {
+      s.on('groupInfo', (data) {
         _groupController.add({
           ...Map<String, dynamic>.from(data as Map),
           'event': 'info',
         });
       });
-      _socket.on('groupMemberLeft', (data) {
+      s.on('groupMemberLeft', (data) {
         _groupController.add({
           ...Map<String, dynamic>.from(data as Map),
           'event': 'memberLeft',
         });
       });
 
-      _socket.on('newGroupMessage', (data) {
+      s.on('newGroupMessage', (data) {
         final message = ChatMessage.fromJson(
           Map<String, dynamic>.from(data as Map),
         );
@@ -268,7 +269,31 @@ class ChatService {
         _messageController.add(message);
       });
 
-      _socket.connect();
+      s.on('messagesHistory', (data) {
+        final roomId = data['roomId'] as String? ?? '';
+        final list = (data['messages'] as List?)
+            ?.map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList() ?? [];
+        _messageHistoryController.add({'roomId': roomId, 'messages': list});
+      });
+
+      s.on('checkUsernameResult', (data) {
+        _usernameCheckController.add(Map<String, dynamic>.from(data as Map));
+      });
+
+      String? token;
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        token = await user?.getIdToken();
+      } catch (_) {}
+
+      if (token != null && !_isDisposed) {
+        try {
+          (s.io as dynamic).opts['auth'] = {'token': token};
+        } catch (_) {}
+      }
+
+      if (!_isDisposed) s.connect();
     } catch (e) {
       _isConnecting = false;
       _handleDisconnect();
@@ -285,9 +310,10 @@ class ChatService {
       data['deviceName'] = '${profile.firstName} ${profile.lastName}'.trim();
       data['phoneNumber'] = profile.phoneNumber;
       data['profilePicBase64'] = profile.profilePicBase64 ?? '';
+      data['username'] = profile.username ?? '';
     }
     if (isConnected) {
-      _socket.emit('register', data);
+      _socket!.emit('register', data);
     }
   }
 
@@ -329,9 +355,19 @@ class ChatService {
     _socket!.emit('searchUsers', {'query': query.trim()});
   }
 
+  void checkUsername(String username) {
+    if (!isConnected || username.trim().length < 3) return;
+    _socket!.emit('checkUsername', {'username': username.trim()});
+  }
+
+  void getMessages(String roomId, {int limit = 50}) {
+    if (!isConnected) return;
+    _socket!.emit('getMessages', {'roomId': roomId, 'limit': limit});
+  }
+
   void joinRoom(String roomId) {
     if (!isConnected) return;
-    _socket.emit('join-room', roomId);
+    _socket!.emit('join-room', roomId);
   }
 
   final Set<String> _pendingMessageIds = {};
@@ -342,7 +378,7 @@ class ChatService {
       return;
     }
     _pendingMessageIds.remove(message.id);
-    _socket.emit('sendMessage', message.toJson());
+    _socket!.emit('sendMessage', message.toJson());
   }
 
   void _retryPendingMessages() {
@@ -359,7 +395,7 @@ class ChatService {
 
   void sendTypingStatus(String roomId, bool isTyping) {
     if (!isConnected) return;
-    _socket.emit('typingStatus', {
+    _socket!.emit('typingStatus', {
       'roomId': roomId,
       'userId': localUserId,
       'isTyping': isTyping,
@@ -368,7 +404,7 @@ class ChatService {
 
   void sendReadReceipt(String roomId, String messageId) {
     if (!isConnected) return;
-    _socket.emit('readReceipt', {
+    _socket!.emit('readReceipt', {
       'roomId': roomId,
       'userId': localUserId,
       'messageId': messageId,
@@ -390,7 +426,7 @@ class ChatService {
       'action': action,
     };
     if (groupId != null) data['groupId'] = groupId;
-    _socket.emit('reaction', data);
+    _socket!.emit('reaction', data);
   }
 
   void createGroup({
@@ -399,7 +435,7 @@ class ChatService {
     required List<String> memberIds,
   }) {
     if (!isConnected) return;
-    _socket.emit('createGroup', {
+    _socket!.emit('createGroup', {
       'groupId': groupId,
       'groupName': groupName,
       'memberIds': memberIds,
@@ -408,17 +444,17 @@ class ChatService {
 
   void joinGroup(String groupId) {
     if (!isConnected) return;
-    _socket.emit('joinGroup', {'groupId': groupId});
+    _socket!.emit('joinGroup', {'groupId': groupId});
   }
 
   void leaveGroup(String groupId) {
     if (!isConnected) return;
-    _socket.emit('leaveGroup', {'groupId': groupId});
+    _socket!.emit('leaveGroup', {'groupId': groupId});
   }
 
   void updateProfile({required String displayName, String? profilePicBase64}) {
     if (!isConnected) return;
-    _socket.emit('updateProfile', {
+    _socket!.emit('updateProfile', {
       'displayName': displayName,
       'profilePicBase64': profilePicBase64,
     });
@@ -436,7 +472,7 @@ class ChatService {
         timestamp: DateTime.now(),
         status: 'sending',
       );
-      _socket.emit('sendMessage', forwarded.toJson());
+      _socket!.emit('sendMessage', forwarded.toJson());
       databaseService?.addChatMessage(forwarded);
     }
   }
@@ -490,5 +526,7 @@ class ChatService {
     _groupController.close();
     _forwardedMessageController.close();
     _errorController.close();
+    _messageHistoryController.close();
+    _usernameCheckController.close();
   }
 }

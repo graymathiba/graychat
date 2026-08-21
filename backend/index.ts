@@ -74,19 +74,21 @@ async function getOrCreatePermanentShortCode(userId: string): Promise<string> {
   return code;
 }
 
-async function upsertUserProfile(userId: string, shortCode: string, displayName: string, email: string, profilePicBase64: string): Promise<void> {
+async function upsertUserProfile(userId: string, shortCode: string, displayName: string, email: string, profilePicBase64: string, username?: string): Promise<void> {
   if (!supabase) return;
   const db = supabase as any;
   try {
+    const record: any = {
+      user_id: userId,
+      short_code: shortCode,
+      display_name: displayName,
+      email: email,
+      profile_pic_base64: profilePicBase64,
+    };
+    if (username) record.username = username;
     await db
       .from('user_profiles')
-      .upsert({
-        user_id: userId,
-        short_code: shortCode,
-        display_name: displayName,
-        email: email,
-        profile_pic_base64: profilePicBase64,
-      }, { onConflict: 'user_id' });
+      .upsert(record, { onConflict: 'user_id' });
   } catch (err: any) {
     console.error('Failed to upsert user profile:', err.message);
   }
@@ -97,23 +99,23 @@ async function searchUsers(query: string, currentUserId: string): Promise<any[]>
   const db = supabase as any;
   const normalizedQuery = query.trim().toLowerCase();
 
-  const { data: byEmail } = await db
+  const { data: byUsername } = await db
     .from('user_profiles')
-    .select('user_id, email, display_name, short_code, profile_pic_base64')
-    .ilike('email', `%${normalizedQuery}%`)
+    .select('user_id, email, display_name, username, short_code, profile_pic_base64')
+    .ilike('username', `%${normalizedQuery}%`)
     .neq('user_id', currentUserId)
     .limit(20);
 
-  const { data: byCode } = await db
+  const { data: byDisplayName } = await db
     .from('user_profiles')
-    .select('user_id, email, display_name, short_code, profile_pic_base64')
-    .ilike('short_code', `%${normalizedQuery}%`)
+    .select('user_id, email, display_name, username, short_code, profile_pic_base64')
+    .ilike('display_name', `%${normalizedQuery}%`)
     .neq('user_id', currentUserId)
     .limit(20);
 
   const seen = new Set<string>();
   const results: any[] = [];
-  for (const u of [...(byEmail || []), ...(byCode || [])]) {
+  for (const u of [...(byUsername || []), ...(byDisplayName || [])]) {
     if (!seen.has(u.user_id)) {
       seen.add(u.user_id);
       results.push(u);
@@ -248,6 +250,16 @@ function deriveRoomId(userA: string, userB: string): string {
   return [userA, userB].sort().join('_');
 }
 
+function generateUsernameSuggestions(username: string): string[] {
+  const suggestions: string[] = [];
+  const suffixes = ['_', '1', '2', '3', 'x', 'dev'];
+  for (const suffix of suffixes) {
+    suggestions.push(`${username}${suffix}`);
+    if (suggestions.length >= 5) break;
+  }
+  return suggestions;
+}
+
 function getOnlineUsers() {
   return Array.from(onlineUsers.entries()).map(([id, info]) => ({
     userId: id,
@@ -307,12 +319,13 @@ io.on('connection', (socket) => {
         : '';
 
       const email = socket.data.user?.email || '';
+      const username = typeof data.username === 'string' ? data.username.trim() : '';
 
       getOrCreatePermanentShortCode(uid).then((shortCode) => {
         onlineUsers.set(uid, { socketId: socket.id, shortCode, displayName, profilePicBase64 });
         shortCodeToUserId.set(shortCode, uid);
 
-        upsertUserProfile(uid, shortCode, displayName, email, profilePicBase64);
+        upsertUserProfile(uid, shortCode, displayName, email, profilePicBase64, username);
 
         socket.emit('myShortCode', { shortCode });
 
@@ -402,6 +415,90 @@ io.on('connection', (socket) => {
     }).catch(() => {
       socket.emit('searchUsersResult', { results: [] });
     });
+  });
+
+  socket.on('checkUsername', (data: any) => {
+    if (!data || typeof data !== 'object' || !supabase) {
+      socket.emit('checkUsernameResult', { available: false, suggestions: [] });
+      return;
+    }
+    const username = typeof data.username === 'string' ? data.username.trim().toLowerCase() : '';
+    if (username.length < 3) {
+      socket.emit('checkUsernameResult', { available: false, suggestions: [] });
+      return;
+    }
+    if (!/^[a-z0-9_]+$/.test(username)) {
+      socket.emit('checkUsernameResult', { available: false, suggestions: [] });
+      return;
+    }
+
+    const db = supabase as any;
+    db
+      .from('user_profiles')
+      .select('user_id')
+      .ilike('username', username)
+      .limit(1)
+      .then(({ data: existing }: any) => {
+        if (existing && existing.length > 0) {
+          const suggestions = generateUsernameSuggestions(username);
+          socket.emit('checkUsernameResult', { available: false, suggestions });
+        } else {
+          socket.emit('checkUsernameResult', { available: true, suggestions: [] });
+        }
+      })
+      .catch(() => {
+        socket.emit('checkUsernameResult', { available: false, suggestions: [] });
+      });
+  });
+
+  socket.on('getMessages', (data: any) => {
+    if (!data || typeof data !== 'object' || !supabase) {
+      socket.emit('messagesHistory', { roomId: data?.roomId || '', messages: [] });
+      return;
+    }
+    const roomId = typeof data.roomId === 'string' ? data.roomId : '';
+    const limit = typeof data.limit === 'number' ? Math.min(data.limit, 100) : 50;
+    if (!roomId) {
+      socket.emit('messagesHistory', { roomId: '', messages: [] });
+      return;
+    }
+
+    const db = supabase as any;
+    db
+      .from('messages')
+      .select('id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from')
+      .eq('room_id', roomId)
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+      .then(({ data: rows, error }: any) => {
+        if (error) {
+          socket.emit('messagesHistory', { roomId, messages: [] });
+          return;
+        }
+        const messages = (rows || []).map((row: any) => ({
+          id: row.id,
+          roomId: row.room_id,
+          senderId: row.sender_id,
+          receiverId: row.receiver_id,
+          content: row.content,
+          messageType: row.message_type || 'text',
+          fileName: row.file_name,
+          mimeType: row.mime_type,
+          attachmentSize: row.attachment_size,
+          status: row.status || 'sent',
+          timestamp: row.timestamp,
+          serverTimestamp: row.server_timestamp,
+          replyToMessageId: row.reply_to_message_id,
+          replyToContent: row.reply_to_content,
+          replyToSenderId: row.reply_to_sender_id,
+          groupId: row.group_id,
+          forwardedFrom: row.forwarded_from,
+        })).reverse();
+        socket.emit('messagesHistory', { roomId, messages });
+      })
+      .catch(() => {
+        socket.emit('messagesHistory', { roomId, messages: [] });
+      });
   });
 
   socket.on('join-room', (roomId: string) => {
@@ -775,6 +872,31 @@ app.get('/health', (req, res) => {
       uptime: process.uptime(),
       memoryUsage: process.memoryUsage().heapUsed,
     });
+  }
+});
+
+app.get('/api/check-username/:username', async (req, res) => {
+  const username = (req.params.username || '').trim().toLowerCase();
+  if (username.length < 3 || !/^[a-z0-9_]+$/.test(username)) {
+    return res.json({ available: false, suggestions: [] });
+  }
+  if (!supabase) {
+    return res.json({ available: true, suggestions: [] });
+  }
+  try {
+    const db = supabase as any;
+    const { data } = await db
+      .from('user_profiles')
+      .select('user_id')
+      .ilike('username', username)
+      .limit(1);
+    if (data && data.length > 0) {
+      const suggestions = generateUsernameSuggestions(username);
+      return res.json({ available: false, suggestions });
+    }
+    return res.json({ available: true, suggestions: [] });
+  } catch {
+    return res.json({ available: false, suggestions: [] });
   }
 });
 

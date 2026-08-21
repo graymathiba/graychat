@@ -232,6 +232,9 @@ class UserProfile extends HiveObject {
   @HiveField(5)
   String userId;
 
+  @HiveField(6)
+  String? username;
+
   UserProfile({
     required this.firstName,
     required this.lastName,
@@ -239,6 +242,7 @@ class UserProfile extends HiveObject {
     this.profilePicPath,
     this.profilePicBase64,
     this.userId = '',
+    this.username,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -249,6 +253,7 @@ class UserProfile extends HiveObject {
       profilePicPath: json['profilePicPath'] as String?,
       profilePicBase64: json['profilePicBase64'] as String?,
       userId: json['userId'] as String? ?? '',
+      username: json['username'] as String?,
     );
   }
 
@@ -260,6 +265,7 @@ class UserProfile extends HiveObject {
       'profilePicPath': profilePicPath,
       'profilePicBase64': profilePicBase64,
       'userId': userId,
+      'username': username,
     };
   }
 
@@ -270,6 +276,7 @@ class UserProfile extends HiveObject {
     String? profilePicPath,
     String? profilePicBase64,
     String? userId,
+    String? username,
   }) {
     return UserProfile(
       firstName: firstName ?? this.firstName,
@@ -278,6 +285,7 @@ class UserProfile extends HiveObject {
       profilePicPath: profilePicPath ?? this.profilePicPath,
       profilePicBase64: profilePicBase64 ?? this.profilePicBase64,
       userId: userId ?? this.userId,
+      username: username ?? this.username,
     );
   }
 

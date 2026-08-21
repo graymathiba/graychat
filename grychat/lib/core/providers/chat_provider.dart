@@ -258,6 +258,8 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
   late final StreamSubscription _readReceiptSub;
   late final StreamSubscription _reactionSub;
   late final StreamSubscription _errorSub;
+  late final StreamSubscription _connectionSub;
+  late final StreamSubscription _historySub;
 
   ChatMessagesNotifier(
     this._dbService,
@@ -268,6 +270,29 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     _loadFromHive();
     _listenToIncoming();
     _listenToReactions();
+    _loadFromServer();
+  }
+
+  void _loadFromServer() {
+    _connectionSub = _chatService.connectionStream.listen((connected) {
+      if (connected) {
+        _chatService.getMessages(_roomId);
+      }
+    });
+    _historySub = _chatService.messageHistoryStream.listen((data) {
+      final roomId = data['roomId'] as String;
+      if (roomId != _roomId) return;
+      final serverMessages = (data['messages'] as List?)?.cast<ChatMessage>() ?? [];
+      if (serverMessages.isEmpty) return;
+      final localIds = state.map((m) => m.id).toSet();
+      final newMessages = serverMessages.where((m) => !localIds.contains(m.id)).toList();
+      if (newMessages.isNotEmpty) {
+        for (final msg in newMessages) {
+          _dbService.addChatMessage(msg);
+        }
+        state = [...state, ...newMessages]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      }
+    });
   }
 
   void _loadFromHive() {
@@ -505,6 +530,8 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     _readReceiptSub.cancel();
     _reactionSub.cancel();
     _errorSub.cancel();
+    _connectionSub.cancel();
+    _historySub.cancel();
     super.dispose();
   }
 }

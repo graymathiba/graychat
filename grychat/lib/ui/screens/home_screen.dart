@@ -151,7 +151,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _shortCodeController.clear();
     String? errorText;
     bool isSearching = false;
-    Map<String, dynamic>? resolvedUser;
     List<Map<String, dynamic>> searchResults = [];
 
     showDialog(
@@ -177,25 +176,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Enter a GryCode or email to find a friend',
+                    'Enter a username to find a friend',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
                   ),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _shortCodeController,
                     autofocus: true,
-                    textCapitalization: TextCapitalization.characters,
+                    textCapitalization: TextCapitalization.none,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: 2,
+                      letterSpacing: 1,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'GRY-???? or email',
+                      hintText: 'username',
                       hintStyle: TextStyle(
                         color: const Color(0xFFC4C8D3),
-                        letterSpacing: 2,
+                        letterSpacing: 1,
                         fontWeight: FontWeight.normal,
                       ),
                       filled: true,
@@ -220,7 +219,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onChanged: (v) {
                       setDialogState(() {
                         errorText = null;
-                        resolvedUser = null;
                         searchResults = [];
                       });
                     },
@@ -231,11 +229,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       child: Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    ),
-                  if (resolvedUser != null && resolvedUser!['found'] == true)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 14),
-                      child: _buildUserCard(resolvedUser!, ctx, setDialogState),
                     ),
                   if (searchResults.isNotEmpty)
                     Padding(
@@ -281,14 +274,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           final query = _shortCodeController.text.trim();
                           if (query.length < 2) {
                             setDialogState(
-                              () => errorText = 'Enter a GryCode or email (min 2 chars)',
+                              () => errorText = 'Enter a username (min 2 chars)',
                             );
                             return;
                           }
                           setDialogState(() {
                             isSearching = true;
                             errorText = null;
-                            resolvedUser = null;
                             searchResults = [];
                           });
                           Future.delayed(const Duration(seconds: 8), () {
@@ -299,38 +291,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             });
                           });
                           _resolveSub?.cancel();
-
-                          if (query.contains('@')) {
-                            _resolveSub = ref
-                                .read(chatServiceProvider)
-                                .searchResultStream
-                                .listen((results) {
-                                  _resolveSub?.cancel();
-                                  setDialogState(() {
-                                    isSearching = false;
-                                    searchResults = results;
-                                    if (results.isEmpty) {
-                                      errorText = 'No users found with that email.';
-                                    }
-                                  });
+                          _resolveSub = ref
+                              .read(chatServiceProvider)
+                              .searchResultStream
+                              .listen((results) {
+                                _resolveSub?.cancel();
+                                setDialogState(() {
+                                  isSearching = false;
+                                  searchResults = results;
+                                  if (results.isEmpty) {
+                                    errorText = 'No users found with that username.';
+                                  }
                                 });
-                            ref.read(chatServiceProvider).searchUsers(query);
-                          } else {
-                            _resolveSub = ref
-                                .read(chatServiceProvider)
-                                .resolveResultStream
-                                .listen((result) {
-                                  _resolveSub?.cancel();
-                                  setDialogState(() {
-                                    isSearching = false;
-                                    resolvedUser = result;
-                                    if (result['found'] == false) {
-                                      errorText = 'No user found. Are they online?';
-                                    }
-                                  });
-                                });
-                            ref.read(chatServiceProvider).resolveShortCode(query.toUpperCase());
-                          }
+                              });
+                          ref.read(chatServiceProvider).searchUsers(query);
                         },
                   child: const Text('Find'),
                 ),
@@ -385,7 +359,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 Text(
-                  user['shortCode'] as String? ?? '',
+                  '@${user['username'] as String? ?? user['email'] as String? ?? ''}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                     fontSize: 12,

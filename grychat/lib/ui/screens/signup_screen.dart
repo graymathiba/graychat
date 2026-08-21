@@ -2,7 +2,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../../config/app_config.dart';
 import '../../core/network/auth_service.dart';
 import '../../core/database/models.dart';
 import '../../core/providers/database_provider.dart';
@@ -27,6 +30,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   String? _error;
   String? _selectedAvatarUrl;
   String? _base64Image;
+  bool _isCheckingUsername = false;
+  bool _usernameAvailable = false;
+  bool _usernameChecked = false;
+  String? _usernameError;
+  List<String> _usernameSuggestions = [];
+  Timer? _usernameDebounce;
 
   final List<Map<String, String>> _presetAvatars = [
     {
@@ -63,6 +72,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   @override
   void dispose() {
+    _usernameDebounce?.cancel();
     _usernameController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
@@ -90,6 +100,57 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     setState(() {
       _selectedAvatarUrl = url;
       _base64Image = null;
+    });
+  }
+
+  void _checkUsernameAvailability(String username) {
+    _usernameDebounce?.cancel();
+    if (username.length < 3) {
+      setState(() {
+        _isCheckingUsername = false;
+        _usernameAvailable = false;
+        _usernameChecked = false;
+        _usernameError = null;
+        _usernameSuggestions = [];
+      });
+      return;
+    }
+    setState(() {
+      _isCheckingUsername = true;
+      _usernameError = null;
+      _usernameSuggestions = [];
+    });
+    _usernameDebounce = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final url = '${AppConfig.backendUrl}/api/check-username/$username';
+        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200 && mounted) {
+          final result = jsonDecode(response.body);
+          setState(() {
+            _isCheckingUsername = false;
+            _usernameChecked = true;
+            _usernameAvailable = result['available'] == true;
+            _usernameSuggestions = List<String>.from(result['suggestions'] ?? []);
+            if (!_usernameAvailable && _usernameSuggestions.isEmpty) {
+              _usernameError = 'Username is taken';
+            } else if (!_usernameAvailable) {
+              _usernameError = null;
+            }
+          });
+        } else if (mounted) {
+          setState(() {
+            _isCheckingUsername = false;
+            _usernameChecked = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _isCheckingUsername = false;
+            _usernameChecked = false;
+          });
+        }
+      }
     });
   }
 
@@ -227,6 +288,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       setState(() => _error = 'Username must be at least 3 characters');
       return;
     }
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(username)) {
+      setState(() => _error = 'Username can only contain letters, numbers, and underscores');
+      return;
+    }
     if (password.length < 6) {
       setState(() => _error = 'Password must be at least 6 characters');
       return;
@@ -237,6 +302,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     }
     if (_selectedAvatarUrl == null && _base64Image == null) {
       setState(() => _error = 'Please select a profile picture');
+      return;
+    }
+    if (!_usernameAvailable) {
+      setState(() => _error = 'Please choose an available username');
       return;
     }
 
@@ -263,6 +332,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
           profilePicPath: _selectedAvatarUrl,
           profilePicBase64: _base64Image,
           userId: firebaseUser.uid,
+          username: username,
         );
         await ref.read(userProfileProvider.notifier).saveProfile(profile);
       }
@@ -403,12 +473,28 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   controller: _usernameController,
                   textInputAction: TextInputAction.next,
                   style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                  onChanged: _checkUsernameAvailability,
                   decoration: InputDecoration(
                     hintText: 'Username',
                     prefixIcon: Icon(
                       Icons.person_outline,
                       color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
+                    suffixIcon: _isCheckingUsername
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : _usernameChecked
+                            ? Icon(
+                                _usernameAvailable ? Icons.check_circle : Icons.cancel,
+                                color: _usernameAvailable ? Colors.green : Colors.redAccent,
+                              )
+                            : null,
                     filled: true,
                     fillColor: Theme.of(context).colorScheme.surface,
                     border: OutlineInputBorder(
@@ -428,6 +514,43 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     ),
                   ),
                 ),
+                if (_usernameError != null && !_isCheckingUsername)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _usernameError!,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                        ),
+                        if (_usernameSuggestions.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: _usernameSuggestions.map((s) => GestureDetector(
+                              onTap: () {
+                                _usernameController.text = s;
+                                _checkUsernameAvailability(s);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1B4EBA).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  s,
+                                  style: const TextStyle(color: Color(0xFF1B4EBA), fontSize: 12),
+                                ),
+                              ),
+                            )).toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 14),
 
                 TextField(
