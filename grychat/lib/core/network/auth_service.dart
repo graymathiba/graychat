@@ -57,6 +57,32 @@ class AuthService {
   String? getDisplayName() {
     return currentUser?.displayName;
   }
+
+  String? get currentEmail => currentUser?.email;
+
+  bool get emailVerified => currentUser?.emailVerified ?? false;
+
+  Future<void> sendEmailVerification(String newEmail) async {
+    final user = currentUser;
+    if (user == null) throw Exception('Not signed in');
+    await user.verifyBeforeUpdateEmail(newEmail);
+  }
+
+  Future<void> confirmEmailUpdate() async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Not signed in');
+    await user.reload();
+    if (!user.emailVerified) {
+      throw Exception('Email not yet verified. Please check your inbox and click the verification link.');
+    }
+  }
+
+  Future<void> updateDisplayName(String name) async {
+    final user = currentUser;
+    if (user == null) throw Exception('Not signed in');
+    await user.updateDisplayName(name);
+    await user.reload();
+  }
 }
 
 final authService = AuthService();

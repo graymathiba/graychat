@@ -900,6 +900,122 @@ app.get('/api/check-username/:username', async (req, res) => {
   }
 });
 
+app.post('/api/update-username', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  let userId: string;
+  try {
+    const app = firebaseApp;
+    if (!app) return res.status(500).json({ error: 'Firebase not initialized' });
+    const decoded = await getAuth(app).verifyIdToken(token);
+    userId = decoded.uid;
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  const { username } = req.body || {};
+  const normalized = (username || '').trim().toLowerCase();
+  if (normalized.length < 3 || !/^[a-z0-9_]+$/.test(normalized)) {
+    return res.status(400).json({ error: 'Invalid username format' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not available' });
+  }
+
+  try {
+    const db = supabase as any;
+
+    // Check if username is taken by another user
+    const { data: existing } = await db
+      .from('user_profiles')
+      .select('user_id')
+      .ilike('username', normalized)
+      .neq('user_id', userId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const suggestions = generateUsernameSuggestions(normalized);
+      return res.status(409).json({ error: 'Username already taken', suggestions });
+    }
+
+    // Update username
+    const { error } = await db
+      .from('user_profiles')
+      .upsert({ user_id: userId, username: normalized }, { onConflict: 'user_id' });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to update username' });
+    }
+
+    return res.json({ success: true, username: normalized });
+  } catch {
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+app.post('/api/update-email', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  let userId: string;
+  let oldEmail: string;
+  try {
+    const app = firebaseApp;
+    if (!app) return res.status(500).json({ error: 'Firebase not initialized' });
+    const decoded = await getAuth(app).verifyIdToken(token);
+    userId = decoded.uid;
+    oldEmail = decoded.email || '';
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
+  const { newEmail } = req.body || {};
+  if (!newEmail || typeof newEmail !== 'string' || !newEmail.includes('@')) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  if (newEmail.toLowerCase() === oldEmail.toLowerCase()) {
+    return res.status(400).json({ error: 'New email is the same as current email' });
+  }
+
+  if (!supabase) {
+    return res.status(500).json({ error: 'Database not available' });
+  }
+
+  try {
+    const db = supabase as any;
+
+    // Check if email is already in use
+    const { data: existing } = await db
+      .from('user_profiles')
+      .select('user_id')
+      .ilike('email', newEmail)
+      .neq('user_id', userId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      return res.status(409).json({ error: 'Email is already in use by another account' });
+    }
+
+    // Update email in Supabase
+    const { error } = await db
+      .from('user_profiles')
+      .upsert({ user_id: userId, email: newEmail }, { onConflict: 'user_id' });
+
+    if (error) {
+      return res.status(500).json({ error: 'Failed to update email in database' });
+    }
+
+    return res.json({ success: true, email: newEmail });
+  } catch {
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 app.get('/turn-credentials', async (req, res) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') 

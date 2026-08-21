@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
+import '../../config/app_config.dart';
 import '../../core/models/chat_message.dart';
 import '../../core/models/group.dart';
 import '../../core/database/models.dart';
@@ -562,7 +564,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Padding(
+            return SingleChildScrollView(
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom,
                 top: 24,
@@ -639,7 +641,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     decoration: const InputDecoration(labelText: 'Last Name'),
                     onChanged: (v) => setModalState(() {}),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  _buildSettingTile(
+                    icon: Icons.alternate_email,
+                    title: 'Change Username',
+                    subtitle: userProfile.username != null ? '@${userProfile.username}' : 'Not set',
+                    onTap: () => _showChangeUsernameDialog(context, userProfile, setModalState),
+                  ),
+                  const SizedBox(height: 4),
+                  _buildSettingTile(
+                    icon: Icons.email_outlined,
+                    title: 'Change Email',
+                    subtitle: authService.currentEmail ?? 'Not set',
+                    onTap: () => _showChangeEmailDialog(context),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1B4EBA),
@@ -686,6 +706,339 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const SizedBox(height: 24),
                 ],
               ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSettingTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B4EBA).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: const Color(0xFF1B4EBA), size: 20),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: Theme.of(context).colorScheme.onSurface,
+          fontSize: 15,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+          fontSize: 13,
+        ),
+      ),
+      trailing: const Icon(Icons.chevron_right, size: 20),
+      onTap: onTap,
+    );
+  }
+
+  void _showChangeUsernameDialog(BuildContext context, UserProfile userProfile, StateSetter setModalState) {
+    final controller = TextEditingController(text: userProfile.username ?? '');
+    bool isChecking = false;
+    bool isAvailable = false;
+    bool isChecked = false;
+    String? errorText;
+    List<String> suggestions = [];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Text('Change Username', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: controller,
+                    textCapitalization: TextCapitalization.none,
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                    decoration: InputDecoration(
+                      hintText: 'New username',
+                      prefixIcon: const Icon(Icons.alternate_email, color: Color(0xFF1B4EBA)),
+                      suffixIcon: isChecking
+                          ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+                          : isChecked
+                              ? Icon(isAvailable ? Icons.check_circle : Icons.cancel, color: isAvailable ? Colors.green : Colors.redAccent)
+                              : null,
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
+                    ),
+                    onChanged: (v) async {
+                      if (v.length < 3) {
+                        setDialogState(() { isChecking = false; isChecked = false; isAvailable = false; errorText = null; suggestions = []; });
+                        return;
+                      }
+                      setDialogState(() { isChecking = true; errorText = null; suggestions = []; });
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      try {
+                        final url = '${AppConfig.backendUrl}/api/check-username/$v';
+                        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 5));
+                        if (response.statusCode == 200 && ctx.mounted) {
+                          final result = jsonDecode(response.body);
+                          setDialogState(() {
+                            isChecking = false;
+                            isChecked = true;
+                            isAvailable = result['available'] == true;
+                            suggestions = List<String>.from(result['suggestions'] ?? []);
+                            errorText = isAvailable ? null : (suggestions.isEmpty ? 'Username is taken' : null);
+                          });
+                        }
+                      } catch (_) {
+                        if (ctx.mounted) setDialogState(() { isChecking = false; isChecked = false; });
+                      }
+                    },
+                  ),
+                  if (errorText != null && !isChecking)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(errorText!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                          if (suggestions.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: suggestions.map((s) => GestureDetector(
+                                onTap: () => controller.text = s,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF1B4EBA).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(s, style: const TextStyle(color: Color(0xFF1B4EBA), fontSize: 12)),
+                                ),
+                              )).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF7E8494))),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B4EBA),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: (!isAvailable || isChecking) ? null : () async {
+                    final newUsername = controller.text.trim().toLowerCase();
+                    setDialogState(() { isChecking = true; });
+                    try {
+                      final token = await authService.accessToken;
+                      final response = await http.post(
+                        Uri.parse('${AppConfig.backendUrl}/api/update-username'),
+                        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+                        body: jsonEncode({'username': newUsername}),
+                      ).timeout(const Duration(seconds: 10));
+                      final result = jsonDecode(response.body);
+                      if (response.statusCode == 200 && result['success'] == true) {
+                        final updatedProfile = userProfile.copyWith(username: newUsername);
+                        await ref.read(userProfileProvider.notifier).saveProfile(updatedProfile);
+                        ref.read(chatServiceProvider).updateProfilePresence();
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Username updated successfully')),
+                          );
+                          setModalState(() {});
+                        }
+                      } else {
+                        if (ctx.mounted) {
+                          setDialogState(() {
+                            isChecking = false;
+                            errorText = result['error'] ?? 'Failed to update username';
+                          });
+                        }
+                      }
+                    } catch (e) {
+                      if (ctx.mounted) setDialogState(() { isChecking = false; errorText = 'Network error'; });
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showChangeEmailDialog(BuildContext context) {
+    final controller = TextEditingController();
+    bool isSending = false;
+    bool emailSent = false;
+    String? errorText;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Text('Change Email', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!emailSent) ...[
+                    Text(
+                      'A verification link will be sent to your new email address. After verifying, your email will be updated.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: controller,
+                      keyboardType: TextInputType.emailAddress,
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+                      decoration: InputDecoration(
+                        hintText: 'New email address',
+                        prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF1B4EBA)),
+                        filled: true,
+                        fillColor: Theme.of(context).colorScheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF1B4EBA), width: 1.5)),
+                      ),
+                    ),
+                  ] else ...[
+                    const Icon(Icons.mark_email_read, color: Color(0xFF1B4EBA), size: 48),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Verification email sent to:',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      controller.text,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Click the verification link in the email, then come back and tap "Confirm Update" below.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontSize: 13),
+                    ),
+                  ],
+                  if (errorText != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(errorText!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF7E8494))),
+                ),
+                if (!emailSent)
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1B4EBA),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isSending ? null : () async {
+                      final newEmail = controller.text.trim();
+                      if (!newEmail.contains('@') || !newEmail.contains('.')) {
+                        setDialogState(() => errorText = 'Please enter a valid email');
+                        return;
+                      }
+                      setDialogState(() { isSending = true; errorText = null; });
+                      try {
+                        await authService.sendEmailVerification(newEmail);
+                        setDialogState(() { isSending = false; emailSent = true; errorText = null; });
+                      } catch (e) {
+                        setDialogState(() {
+                          isSending = false;
+                          errorText = e.toString().contains('recently')
+                              ? 'Please wait before requesting another verification email'
+                              : 'Failed to send verification: ${e.toString().split('\n').first}';
+                        });
+                      }
+                    },
+                    child: isSending
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Send Verification'),
+                  )
+                else
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1B4EBA),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isSending ? null : () async {
+                      setDialogState(() { isSending = true; errorText = null; });
+                      try {
+                        await authService.confirmEmailUpdate();
+                        final newEmail = controller.text.trim();
+                        final token = await authService.accessToken;
+                        await http.post(
+                          Uri.parse('${AppConfig.backendUrl}/api/update-email'),
+                          headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+                          body: jsonEncode({'newEmail': newEmail}),
+                        ).timeout(const Duration(seconds: 10));
+                        if (ctx.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Email updated successfully')),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() {
+                          isSending = false;
+                          errorText = e.toString().contains('not yet verified')
+                              ? 'Email not yet verified. Please check your inbox and click the link first.'
+                              : 'Failed to confirm: ${e.toString().split('\n').first}';
+                        });
+                      }
+                    },
+                    child: isSending
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('Confirm Update'),
+                  ),
+              ],
             );
           },
         );
