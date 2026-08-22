@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/network/auth_service.dart';
 
@@ -37,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await authService.signIn(email: email, password: password);
     } on FirebaseAuthException catch (e) {
-      print('[LoginScreen] Firebase error: code=${e.code}, message=${e.message}');
+
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     } catch (e) {
-      print('[LoginScreen] Unexpected error: $e');
+
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -57,10 +57,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   String _firebaseError(FirebaseAuthException e) {
     switch (e.code) {
-      case 'user-not-found':
-        return 'No account found with this email';
-      case 'wrong-password':
-        return 'Incorrect password';
       case 'invalid-email':
         return 'Invalid email address';
       case 'user-disabled':
@@ -71,8 +67,10 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'Invalid email or password';
       case 'network-request-failed':
         return 'Network error. Check your connection';
+      // user-not-found / wrong-password collapse into the generic message
+      // so attackers cannot probe which emails are registered.
       default:
-        return e.message ?? 'Login failed. Please try again';
+        return 'Invalid email or password';
     }
   }
 

@@ -41,7 +41,6 @@ class DatabaseService {
 
     const maxRetries = 5;
     var attempt = 0;
-    var lastLockError = '';
 
     while (attempt < maxRetries) {
       attempt++;
@@ -56,8 +55,6 @@ class DatabaseService {
 
         return;
       } catch (e) {
-        lastLockError = e.toString();
-
         await _closeAllOpenBoxes();
         if (attempt < maxRetries) {
           final delay = Duration(seconds: attempt);
@@ -79,8 +76,7 @@ class DatabaseService {
         _groupsBox = await _openBoxSafe<Group>(groupsBoxName, path: _activeStoragePath);
         _initialized = true;
         return;
-      } on FileSystemException catch (e) {
-
+      } on FileSystemException {
         await _closeAllOpenBoxes();
         if (attempt < maxRetries) {
           await Future.delayed(Duration(milliseconds: 500 * attempt));

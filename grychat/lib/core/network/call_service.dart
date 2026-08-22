@@ -1,8 +1,9 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../config/app_config.dart';
 import '../utils/app_logger.dart';
+import 'chat_service.dart';
 
 enum CallState {
   idle,
@@ -32,9 +33,10 @@ class CallInfo {
 }
 
 class CallService {
-  final io.Socket _socket;
+  final ChatService chatService;
   final String localUserId;
   String localDisplayName = '';
+  bool _listeningForSignals = false;
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -62,9 +64,17 @@ class CallService {
   CallType get callType => _callType;
   String get remotePeerId => _remotePeerId;
 
-  CallService({required this._socket, required this.localUserId}) {
-    _listenForCallSignals();
+  CallService({required this.chatService, required this.localUserId}) {
+    chatService.connectionStream.listen((connected) {
+      if (connected && !_listeningForSignals) {
+        _listenForCallSignals();
+        _listeningForSignals = true;
+      }
+    });
   }
+
+  io.Socket? get _socket =>
+      chatService.isConnected ? chatService.socket : null;
 
   void _updateState(CallState newState) {
     _state = newState;
@@ -108,7 +118,7 @@ class CallService {
     };
 
     pc.onIceCandidate = (candidate) {
-      _socket.emit('call:ice_candidate', {
+      _socket?.emit('call:ice_candidate', {
         'targetId': _remotePeerId,
         'data': {'candidate': candidate.toMap()},
       });
@@ -149,7 +159,10 @@ class CallService {
   }
 
   void _listenForCallSignals() {
-    _socket.on('call:offer', (data) async {
+    final s = _socket;
+    if (s == null) return;
+
+    s.on('call:offer', (data) async {
       final senderId = data['senderId'] as String;
       final inner = data['data'] as Map<String, dynamic>;
       final offer = inner['offer'] as Map<String, dynamic>;
@@ -181,12 +194,12 @@ class CallService {
       );
     });
 
-    _socket.on('call:answer', (data) async {
+    s.on('call:answer', (data) async {
       final inner = data['data'] as Map<String, dynamic>;
       final answer = inner['answer'] as Map<String, dynamic>;
       AppLogger.info(
         'CallService',
-        'Answer received — setting remote desc',
+        'Answer received - setting remote desc',
         {},
       );
       await _peerConnection?.setRemoteDescription(
@@ -194,21 +207,21 @@ class CallService {
       );
     });
 
-    _socket.on('call:reject', (data) {
+    s.on('call:reject', (data) {
       AppLogger.info('CallService', 'Call rejected', data);
       _updateState(CallState.ended);
       _cleanup();
       _scheduleIdleTimeout();
     });
 
-    _socket.on('call:hangup', (data) {
+    s.on('call:hangup', (data) {
       AppLogger.info('CallService', 'Call hung up', data);
       _updateState(CallState.ended);
       _cleanup();
       _scheduleIdleTimeout();
     });
 
-    _socket.on('call:ice_candidate', (data) async {
+    s.on('call:ice_candidate', (data) async {
       final inner = data['data'] as Map<String, dynamic>?;
       final candidate = inner?['candidate'] as Map<String, dynamic>?;
       if (candidate != null && _peerConnection != null) {
@@ -276,7 +289,7 @@ class CallService {
     await _peerConnection!.setLocalDescription(offer);
 
     AppLogger.info('CallService', 'Sending offer', {'target': _remotePeerId});
-    _socket.emit('call:offer', {
+    _socket?.emit('call:offer', {
       'targetId': _remotePeerId,
       'data': {
         'offer': {'sdp': offer.sdp, 'type': offer.type},
@@ -297,7 +310,7 @@ class CallService {
     await _peerConnection!.setLocalDescription(answer);
 
     AppLogger.info('CallService', 'Sending answer', {'target': _remotePeerId});
-    _socket.emit('call:answer', {
+    _socket?.emit('call:answer', {
       'targetId': _remotePeerId,
       'data': {
         'answer': {'sdp': answer.sdp, 'type': answer.type},
@@ -307,7 +320,7 @@ class CallService {
 
   void rejectCall() {
     if (_state != CallState.incomingRinging) return;
-    _socket.emit('call:reject', {'targetId': _remotePeerId, 'data': {}});
+    _socket?.emit('call:reject', {'targetId': _remotePeerId, 'data': {}});
     _updateState(CallState.ended);
     _cleanup();
     _scheduleIdleTimeout();
@@ -316,7 +329,7 @@ class CallService {
   void endCall() {
     if (_state == CallState.idle || _state == CallState.ended) return;
     if (_remotePeerId.isNotEmpty) {
-      _socket.emit('call:hangup', {'targetId': _remotePeerId, 'data': {}});
+      _socket?.emit('call:hangup', {'targetId': _remotePeerId, 'data': {}});
     }
     _updateState(CallState.ended);
     _cleanup();

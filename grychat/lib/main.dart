@@ -47,20 +47,22 @@ void _logCrash(Object error, StackTrace stack) {
   crashReportService.reportError(error, stack);
 }
 
+bool _bootstrapped = false;
+
 void main() async {
-  runZonedGuarded(_mainInner, _logCrash);
+  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() => _bootstrap(), _logCrash);
 }
 
-void _mainInner() async {
-
-  WidgetsFlutterBinding.ensureInitialized();
+Future<void> _bootstrap() async {
+  if (_bootstrapped) return;
+  _bootstrapped = true;
 
   MediaKit.ensureInitialized();
 
   crashReportService.setupErrorHandlers();
 
   try {
-
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
@@ -68,28 +70,24 @@ void _mainInner() async {
     try {
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
       FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-
     } catch (e) {
-
+      // non-fatal: continue booting without Crashlytics
     }
     try {
       final messaging = FirebaseMessaging.instance;
-      final settings = await messaging.requestPermission(
+      await messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true,
       );
 
-      final token = await messaging.getToken();
+      await messaging.getToken();
 
-      messaging.onTokenRefresh.listen((newToken) {
-
-      });
+      messaging.onTokenRefresh.listen((newToken) {});
 
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
     } catch (e) {
-
+      // non-fatal: continue booting without push notifications
     }
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null && currentUser.isAnonymous) {
@@ -111,18 +109,16 @@ void _mainInner() async {
       }
     });
   } catch (e) {
-
+    // non-fatal: continue booting without Firebase
   }
 
   try {
-
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabaseAnonKey,
     );
-
   } catch (e) {
-
+    // non-fatal: continue booting without Supabase
   }
 
   final envProfile = Platform.environment['APP_PROFILE'];
@@ -155,20 +151,21 @@ void _mainInner() async {
             children: [
               const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
               const SizedBox(height: 16),
-              Text(
-                '${details.exception.runtimeType}',
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              const Text(
+                'Something went wrong',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              Text(
-                '${details.exception}',
-                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+              // Exception details are logged via Crashlytics, never shown to users.
+              const Text(
+                'An unexpected error occurred. The issue has been reported.',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
               const Text(
                 'Restart the app and try again.\nClose any other GryChat instances.',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+                style: TextStyle(color: Colors.white54, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -194,6 +191,30 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> {
   bool _incomingCallShowing = false;
+
+  static const _pageTransitions = PageTransitionsTheme(
+    builders: {
+      TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+      TargetPlatform.iOS: ZoomPageTransitionsBuilder(),
+      TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+      TargetPlatform.macOS: ZoomPageTransitionsBuilder(),
+      TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+    },
+  );
+
+  ThemeData _buildTheme(Brightness brightness) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF1B4EBA),
+      brightness: brightness,
+    );
+    return ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      scaffoldBackgroundColor:
+          brightness == Brightness.light ? Colors.white : const Color(0xFF171B24),
+      pageTransitionsTheme: _pageTransitions,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -235,22 +256,8 @@ class _MyAppState extends ConsumerState<MyApp> {
       navigatorKey: navigatorKey,
       title: 'Grychat',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B4EBA),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: Colors.white,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B4EBA),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFF171B24),
-      ),
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
       themeMode: ref.watch(darkModeProvider) ? ThemeMode.dark : ThemeMode.light,
       routes: {
         '/login': (_) => const LoginScreen(),

@@ -1,31 +1,5 @@
-import 'package:hive/hive.dart';
+﻿import 'package:hive/hive.dart';
 import '../models/chat_message.dart';
-
-/// Hand-written Hive TypeAdapter for ChatMessage.
-/// typeId: 4 — bumped from 3 to support new fields (reply, reactions,
-/// group chat, forwarding, favorites).
-///
-/// Field indices:
-///   0:  id (String)
-///   1:  roomId (String)
-///   2:  senderId (String)
-///   3:  receiverId (String)
-///   4:  content (String)
-///   5:  messageType (String)
-///   6:  status (String)
-///   7:  timestamp (DateTime)
-///   8:  serverTimestamp (DateTime?)
-///   9:  fileName (String?)
-///   10: mimeType (String?)
-///   11: attachmentBase64 (String?)
-///   12: attachmentSize (int?)
-///   13: replyToMessageId (String?)
-///   14: replyToContent (String?)
-///   15: replyToSenderId (String?)
-///   16: reactions (`Map<String, List<String>>`)
-///   17: groupId (String?)
-///   18: forwardedFrom (String?)
-///   19: isFavorite (bool)
 class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
   @override
   final int typeId = 4;
@@ -78,7 +52,7 @@ class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
 
   @override
   void write(BinaryWriter writer, ChatMessage obj) {
-    writer.writeByte(20); // number of fields
+    writer.writeByte(20);
     writer.writeByte(0);
     writer.write(obj.id);
     writer.writeByte(1);
@@ -112,7 +86,6 @@ class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
     writer.writeByte(15);
     writer.write(obj.replyToSenderId);
     writer.writeByte(16);
-    // Serialize reactions as Map<String, List<String>>
     writer.write(obj.reactions);
     writer.writeByte(17);
     writer.write(obj.groupId);

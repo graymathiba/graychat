@@ -91,10 +91,27 @@ class ChatService {
     _isConnecting = true;
 
     try {
+      // Fresh token for EVERY connection attempt so long-lived sessions
+      // never reconnect with an expired credential.
+      String? token;
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        token = await user?.getIdToken();
+      } catch (_) {}
+
+      if (token == null) {
+        AppLogger.warn('ChatService', 'No auth token - aborting connect');
+        _isConnecting = false;
+        _connectionController.add(false);
+        return;
+      }
+
       _socket = io.io(serverUrl, {
         'transports': ['websocket'],
         'autoConnect': false,
+        'reconnection': false,
         'maxHttpBufferSize': 1e6,
+        'auth': {'token': token},
       });
 
       final s = _socket!;
@@ -280,18 +297,6 @@ class ChatService {
       s.on('checkUsernameResult', (data) {
         _usernameCheckController.add(Map<String, dynamic>.from(data as Map));
       });
-
-      String? token;
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        token = await user?.getIdToken();
-      } catch (_) {}
-
-      if (token != null && !_isDisposed) {
-        try {
-          (s.io as dynamic).opts['auth'] = {'token': token};
-        } catch (_) {}
-      }
 
       if (!_isDisposed) s.connect();
     } catch (e) {

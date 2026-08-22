@@ -22,3 +22,40 @@
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.**
 -dontwarn com.google.android.play.core.tasks.**
+
+# Keep WebRTC
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
+
+# Keep media_kit / libmpv
+-keep class com.alexmererind.** { *; }
+-keep class io.flutter.plugins.** { *; }
+-dontwarn com.alexmererind.**
+
+# Keep socket.io
+-keep class io.socket.** { *; }
+-dontwarn io.socket.**
+
+# Keep record audio
+-keep class com.llfbandit.** { *; }
+-dontwarn com.llfbandit.**
+
+# Keep app_links
+-keep class com.llfbandit.** { *; }
+
+# Keep pdfx
+-keep class com.github.nicehash.** { *; }
+-dontwarn com.github.nicehash.**
+
+# Keep permission_handler
+-keep class com.baseflow.permissionhandler.** { *; }
+
+# Keep Kotlin coroutines
+-keep class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
+
+# General Android
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -37,7 +37,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final callService = ref.read(callServiceProvider);
 
-      // Direct stream subscription — more reliable than ref.listen for pop
       _callSub = callService.callInfoStream.listen((info) {
         if (!mounted || _isPopping) return;
         if (info == null ||
@@ -57,7 +56,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
         if (mounted) setState(() {});
       });
 
-      // Periodic refresh to ensure video views update when streams attach
       _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (mounted && !_isPopping) {
           final callService = ref.read(callServiceProvider);
@@ -125,7 +123,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
     return Column(
       children: [
-        // ── Remote Video (full screen) or Avatar ──
         Expanded(
           child: isVideo && isActive
               ? Stack(
@@ -136,7 +133,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       objectFit:
                           RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
-                    // Local video pip
                     Positioned(
                       top: 16,
                       right: 16,
@@ -214,7 +210,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 ),
         ),
 
-        // ── Controls ──
         if (isActive || callInfo.state == CallState.outgoingRinging)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 32),
@@ -261,7 +256,6 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             ),
           ),
 
-        // Incoming call: answer/reject
         if (callInfo.state == CallState.incomingRinging)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 32),

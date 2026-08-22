@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,18 +16,18 @@ class CompleteProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
-  final TextEditingController _firstNameController = TextEditingController(text: 'Jhone');
+  final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _customPathController = TextEditingController();
-  
+
+  bool _isSaving = false;
+
   String? _selectedAvatarUrl;
   String? _selectedLocalPath;
   String? _base64Image;
-
-  // Preset Avatars from Unsplash matching the user design style
   final List<Map<String, String>> _presetAvatars = [
     {
-      'name': 'Jhone william',
+      'name': 'Alex Morgan',
       'url': 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
     },
     {
@@ -59,8 +59,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
     _customPathController.dispose();
     super.dispose();
   }
-
-  // Choose profile photo options
   void _showImageSelector() {
     showModalBottomSheet(
       context: context,
@@ -85,8 +83,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
-                
-                // Presets Grid
                 const Text(
                   'CHOOSE FROM PRESETS',
                   style: TextStyle(
@@ -135,8 +131,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-
-                // Custom file path option (highly reliable on desktop/Windows)
                 const Text(
                   'OR ENTER CUSTOM IMAGE FILE PATH',
                   style: TextStyle(
@@ -150,14 +144,25 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _customPathController,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: InputDecoration(
-                          hintText: 'C:\\path\\to\\my_photo.jpg',
-                          hintStyle: const TextStyle(color: Color(0xFFC4C8D3)),
-                          filled: true,
-                          fillColor: const Color(0xFFF4F6FA),
+                       child: TextField(
+                         controller: _customPathController,
+                         style: TextStyle(
+                           fontSize: 13,
+                           color: Theme.of(context).colorScheme.onSurface,
+                         ),
+                         decoration: InputDecoration(
+                           hintText: 'C:\\path\\to\\my_photo.jpg',
+                           hintStyle: TextStyle(
+                             color: Theme.of(context)
+                                 .colorScheme
+                                 .onSurface
+                                 .withValues(alpha: 0.4),
+                           ),
+                           filled: true,
+                           fillColor: Theme.of(context)
+                               .colorScheme
+                               .surfaceContainerHighest
+                               .withValues(alpha: 0.5),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 10,
@@ -185,7 +190,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                           if (await file.exists()) {
                             try {
                               final bytes = await file.readAsBytes();
-                              // Convert and store base64 string
                               final base64Str = base64Encode(bytes);
                               if (!context.mounted) return;
                               setState(() {
@@ -233,8 +237,8 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
       );
       return;
     }
-
-    // Prepare profile model with current Firebase UID
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
     String firebaseUserId = '';
     try {
       firebaseUserId = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -247,16 +251,14 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
       profilePicBase64: _base64Image,
       userId: firebaseUserId,
     );
-
-    // If a preset avatar is chosen, we can also store a placeholder base64 or download it
-    // But to keep it instant, we can simply let other peers pull it or display initials.
-    
-    // Save profile to database
-    await ref.read(userProfileProvider.notifier).saveProfile(profile);
-
-    // Reactive MyApp state will transition automatically to MainScreen!
-    // We just need to pop this pushed screen to reveal it.
+    try {
+      await ref.read(userProfileProvider.notifier).saveProfile(profile);
+    } catch (_) {
+      // Profile save failures are surfaced by the provider; never leave the
+      // button stuck disabled.
+    }
     if (mounted) {
+      setState(() => _isSaving = false);
       Navigator.popUntil(context, (route) => route.isFirst);
     }
   }
@@ -290,8 +292,6 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 30),
-              
-              // Profile Picture selector
               Center(
                 child: GestureDetector(
                   onTap: _showImageSelector,
@@ -301,7 +301,10 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                         width: 110,
                         height: 110,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF4F6FA),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.5),
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: Theme.of(context).colorScheme.outlineVariant,
@@ -343,10 +346,8 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   ),
                 ),
               ),
-              
+
               const SizedBox(height: 48),
-              
-              // FIRST NAME input
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -369,8 +370,11 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                     ),
                     decoration: InputDecoration(
                       hintText: 'Enter your first name',
-                      hintStyle: const TextStyle(
-                        color: Color(0xFFC4C8D3),
+                      hintStyle: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4),
                         fontWeight: FontWeight.normal,
                       ),
                       enabledBorder: UnderlineInputBorder(
@@ -389,10 +393,8 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 32),
-              
-              // LAST NAME input
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -415,8 +417,11 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                     ),
                     decoration: InputDecoration(
                       hintText: 'Enter your last name',
-                      hintStyle: const TextStyle(
-                        color: Color(0xFFC4C8D3),
+                      hintStyle: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.4),
                         fontWeight: FontWeight.normal,
                       ),
                       enabledBorder: UnderlineInputBorder(
@@ -435,10 +440,8 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 60),
-              
-              // Continue Button
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1B4EBA),
@@ -450,15 +453,24 @@ class _CompleteProfileScreenState extends ConsumerState<CompleteProfileScreen> {
                   elevation: 2,
                   shadowColor: const Color(0xFF1B4EBA).withValues(alpha: 0.3),
                 ),
-                onPressed: _onContinue,
-                child: const Text(
-                  'CONTINUE',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.0,
-                  ),
-                ),
+                onPressed: _isSaving ? null : _onContinue,
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        'CONTINUE',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
               ),
             ],
           ),

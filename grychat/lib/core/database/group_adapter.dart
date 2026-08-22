@@ -1,8 +1,6 @@
-import 'package:hive/hive.dart';
+﻿import 'package:hive/hive.dart';
 import '../models/group.dart';
 
-/// Handwritten Hive TypeAdapter for Group.
-/// typeId: 5
 class GroupAdapter extends TypeAdapter<Group> {
   @override
   final int typeId = 5;

@@ -39,14 +39,19 @@ if (supabaseUrl && supabaseKey) {
   supabase = createClient(supabaseUrl, supabaseKey);
 }
 
-function generateShortCodeFromHash(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    const char = userId.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+function generateShortCodeFromHash(userId: string, salt = ''): string {
+  const input = salt ? `${userId}:${salt}` : userId;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  let code = Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  const code = ((hash >>> 0) % 1679616).toString(36).toUpperCase().padStart(4, '0');
   return `GRY-${code}`;
 }
 
@@ -62,7 +67,16 @@ async function getOrCreatePermanentShortCode(userId: string): Promise<string> {
 
   if (existing?.short_code) return existing.short_code;
 
-  const code = generateShortCodeFromHash(userId);
+  let code = generateShortCodeFromHash(userId);
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    const { data: taken } = await db
+      .from('user_profiles')
+      .select('user_id')
+      .eq('short_code', code)
+      .maybeSingle();
+    if (!taken || taken.user_id === userId) break;
+    code = generateShortCodeFromHash(userId, String(attempt));
+  }
   const { error } = await db
     .from('user_profiles')
     .upsert({ user_id: userId, short_code: code }, { onConflict: 'user_id' });
@@ -101,14 +115,14 @@ async function searchUsers(query: string, currentUserId: string): Promise<any[]>
 
   const { data: byUsername } = await db
     .from('user_profiles')
-    .select('user_id, email, display_name, username, short_code, profile_pic_base64')
+    .select('user_id, display_name, username, short_code, profile_pic_base64')
     .ilike('username', `%${normalizedQuery}%`)
     .neq('user_id', currentUserId)
     .limit(20);
 
   const { data: byDisplayName } = await db
     .from('user_profiles')
-    .select('user_id, email, display_name, username, short_code, profile_pic_base64')
+    .select('user_id, display_name, username, short_code, profile_pic_base64')
     .ilike('display_name', `%${normalizedQuery}%`)
     .neq('user_id', currentUserId)
     .limit(20);
@@ -221,6 +235,9 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || [
 
 const app = express();
 const server = http.createServer(app);
+
+app.use(express.json({ limit: '1mb' }));
+
 const io = new Server(server, {
   cors: { 
     origin: ALLOWED_ORIGINS,
@@ -307,7 +324,9 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const uid = data.userId || userId;
+      // Identity comes ONLY from the verified JWT — client-supplied
+      // userId is ignored so one user cannot impersonate another.
+      const uid = userId;
       socket.data.registeredUserId = uid;
       
       const displayName = typeof data.deviceName === 'string' 
@@ -451,7 +470,7 @@ io.on('connection', (socket) => {
       });
   });
 
-  socket.on('getMessages', (data: any) => {
+  socket.on('getMessages', async (data: any) => {
     if (!data || typeof data !== 'object' || !supabase) {
       socket.emit('messagesHistory', { roomId: data?.roomId || '', messages: [] });
       return;
@@ -464,10 +483,45 @@ io.on('connection', (socket) => {
     }
 
     const db = supabase as any;
-    db
-      .from('messages')
-      .select('id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from')
-      .eq('room_id', roomId)
+
+    const verifiedUid = (socket.data.user?.uid || '') as string;
+    if (!verifiedUid) {
+      socket.emit('messagesHistory', { roomId, messages: [] });
+      return;
+    }
+
+    let query;
+    if (roomId.startsWith('group_')) {
+      const groupId = roomId.slice('group_'.length);
+      let isMember = groups.get(groupId)?.memberIds.includes(verifiedUid) ?? false;
+      if (!isMember) {
+        try {
+          const { data: membership } = await db
+            .from('group_members')
+            .select('user_id')
+            .eq('group_id', groupId)
+            .eq('user_id', verifiedUid)
+            .maybeSingle();
+          isMember = !!membership;
+        } catch {
+          isMember = false;
+        }
+      }
+      if (!isMember) {
+        socket.emit('messagesHistory', { roomId, messages: [] });
+        return;
+      }
+      query = db.from('messages').select(
+        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from'
+      ).eq('group_id', groupId);
+    } else {
+      // 1:1 room — only actual participants may read it.
+      query = db.from('messages').select(
+        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from'
+      ).eq('room_id', roomId).or(`sender_id.eq.${verifiedUid},receiver_id.eq.${verifiedUid}`);
+    }
+
+    query
       .order('timestamp', { ascending: false })
       .limit(limit)
       .then(({ data: rows, error }: any) => {
@@ -549,7 +603,7 @@ io.on('connection', (socket) => {
 
       const serverTimestamp = new Date().toISOString();
       
-      const senderId = (socket.data.registeredUserId || data.senderId) as string;
+      const senderId = (socket.data.registeredUserId || userId) as string;
       const receiverId = data.receiverId as string;
       if (!senderId || !receiverId) {
         throw new Error('Invalid message participants');
@@ -568,10 +622,7 @@ io.on('connection', (socket) => {
       const messageType = validMessageTypes.includes(data.messageType) ? data.messageType : 'text';
 
       const correctRoomId = deriveRoomId(senderId, receiverId);
-      
-      if (data.roomId !== correctRoomId) {
-      }
-      
+
       const message = {
         id: data.id,
         roomId: correctRoomId,
@@ -766,14 +817,22 @@ io.on('connection', (socket) => {
 
     const senderId = socket.data.registeredUserId || userId;
     const groupId = data.groupId as string;
-    const groupName = typeof data.groupName === 'string' 
-      ? data.groupName.slice(0, MAX_DISPLAY_NAME_LENGTH) 
+    const groupName = typeof data.groupName === 'string'
+      ? data.groupName.slice(0, MAX_DISPLAY_NAME_LENGTH)
       : '';
-    const memberIds = Array.isArray(data.memberIds) 
+    const memberIds = Array.isArray(data.memberIds)
       ? (data.memberIds as string[]).slice(0, MAX_GROUP_MEMBERS)
       : [];
-    
+
     if (!groupId || !groupName || memberIds.length === 0) return;
+    if (!/^[A-Za-z0-9_-]{6,64}$/.test(groupId)) {
+      socket.emit('error', { message: 'Invalid group id' });
+      return;
+    }
+    if (groups.has(groupId)) {
+      socket.emit('error', { message: 'Group already exists' });
+      return;
+    }
 
     const group = {
       id: groupId,
@@ -1071,7 +1130,14 @@ const emailTransporter = nodemailer.createTransport({
 
 const crashReportCounts = new Map<string, { count: number; resetTime: number }>();
 
-app.use(express.json({ limit: '1mb' }));
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 app.post('/api/crash-report', async (req, res) => {
   try {
@@ -1117,23 +1183,23 @@ app.post('/api/crash-report', async (req, res) => {
           <div style="font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; border-radius: 8px;">
             <h2 style="color: #ff6b6b; margin: 0 0 16px 0;">GryChat Crash Report</h2>
             <table style="width: 100%; border-collapse: collapse;">
-              <tr><td style="padding: 6px 12px; color: #888;">Timestamp</td><td style="padding: 6px 12px;">${report.timestamp || new Date().toISOString()}</td></tr>
-              <tr><td style="padding: 6px 12px; color: #888;">App Version</td><td style="padding: 6px 12px;">${report.appVersion || 'unknown'}</td></tr>
-              <tr><td style="padding: 6px 12px; color: #888;">Device</td><td style="padding: 6px 12px;">${report.deviceModel || 'unknown'}</td></tr>
-              <tr><td style="padding: 6px 12px; color: #888;">OS Version</td><td style="padding: 6px 12px;">${report.osVersion || 'unknown'}</td></tr>
-              <tr><td style="padding: 6px 12px; color: #888;">Screen</td><td style="padding: 6px 12px;">${report.screen || 'N/A'}</td></tr>
-              <tr><td style="padding: 6px 12px; color: #888;">User ID</td><td style="padding: 6px 12px;">${report.userId || 'anonymous'}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">Timestamp</td><td style="padding: 6px 12px;">${escapeHtml(report.timestamp || new Date().toISOString())}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">App Version</td><td style="padding: 6px 12px;">${escapeHtml(report.appVersion || 'unknown')}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">Device</td><td style="padding: 6px 12px;">${escapeHtml(report.deviceModel || 'unknown')}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">OS Version</td><td style="padding: 6px 12px;">${escapeHtml(report.osVersion || 'unknown')}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">Screen</td><td style="padding: 6px 12px;">${escapeHtml(report.screen || 'N/A')}</td></tr>
+              <tr><td style="padding: 6px 12px; color: #888;">User ID</td><td style="padding: 6px 12px;">${escapeHtml(report.userId || 'anonymous')}</td></tr>
             </table>
             <hr style="border-color: #333; margin: 16px 0;">
             <h3 style="color: #ff6b6b; margin: 0 0 8px 0;">Error</h3>
-            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #ff9a9a; font-size: 13px;">${report.error}</pre>
+            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #ff9a9a; font-size: 13px;">${escapeHtml(report.error)}</pre>
             ${report.stackTrace ? `
             <h3 style="color: #ff6b6b; margin: 16px 0 8px 0;">Stack Trace</h3>
-            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #8b949e; font-size: 12px; max-height: 400px; overflow-y: auto;">${report.stackTrace}</pre>
+            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #8b949e; font-size: 12px; max-height: 400px; overflow-y: auto;">${escapeHtml(report.stackTrace)}</pre>
             ` : ''}
             ${report.extra && Object.keys(report.extra).length > 0 ? `
             <h3 style="color: #ff6b6b; margin: 16px 0 8px 0;">Extra Info</h3>
-            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #8b949e; font-size: 12px;">${JSON.stringify(report.extra, null, 2)}</pre>
+            <pre style="background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; color: #8b949e; font-size: 12px;">${escapeHtml(JSON.stringify(report.extra, null, 2))}</pre>
             ` : ''}
           </div>
         `;
@@ -1141,7 +1207,7 @@ app.post('/api/crash-report', async (req, res) => {
         await emailTransporter.sendMail({
           from: `"GryChat Crash Reporter" <${process.env.SMTP_USER}>`,
           to: CRASH_REPORT_EMAIL,
-          subject: `[Crash] GryChat ${report.appVersion || '?'} — ${report.error.substring(0, 80)}`,
+          subject: `[Crash] GryChat ${escapeHtml((report.appVersion || '?').toString())} — ${escapeHtml(report.error.substring(0, 80))}`,
           html,
         });
         console.log(`Crash report email sent to ${CRASH_REPORT_EMAIL}`);

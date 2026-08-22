@@ -1,15 +1,4 @@
-/// ChatMessage model for the messaging platform.
-library;
-
-/// Hive typeId: 4 (bumped from 3 to support new fields for reply, reactions,
-/// group chat, forwarding, and favorites).
-///
-/// Implements optimistic UI via the [status] field:
-///   'sending' → written to Hive before socket emit
-///   'sent'    → server acknowledged receipt
-///   'delivered' → recipient's device received
-///   'read'    → recipient opened the conversation
-///   'failed'  → socket emit timed out or errored
+﻿library;
 
 class ChatMessage {
   final String id;
@@ -17,31 +6,20 @@ class ChatMessage {
   final String senderId;
   final String receiverId;
   final String content;
-  final String messageType; // 'text', 'image', 'audio', 'video', 'file'
+  final String messageType;
   final String? fileName;
   final String? mimeType;
   final String? attachmentBase64;
   final int? attachmentSize;
-  final String status; // 'sending', 'sent', 'delivered', 'read', 'failed'
+  final String status;
   final DateTime timestamp;
   final DateTime? serverTimestamp;
-
-  // ── Reply / Quote ──────────────────────────────────────────────────
   final String? replyToMessageId;
   final String? replyToContent;
   final String? replyToSenderId;
-
-  // ── Reactions ──────────────────────────────────────────────────────
-  /// Reactions map — e.g. `{"👍": ["user1","user2"], "❤️": ["user3"]}`
   final Map<String, List<String>> reactions;
-
-  // ── Group Chat ─────────────────────────────────────────────────────
   final String? groupId;
-
-  // ── Forwarding ─────────────────────────────────────────────────────
   final String? forwardedFrom;
-
-  // ── Favorites ──────────────────────────────────────────────────────
   final bool isFavorite;
 
   ChatMessage({
@@ -66,9 +44,6 @@ class ChatMessage {
     this.forwardedFrom,
     this.isFavorite = false,
   });
-
-  /// Derives a deterministic room ID from two user IDs.
-  /// Both sides of the conversation resolve to the same room.
   static String deriveRoomId(String userA, String userB) {
     if (userA.isEmpty || userB.isEmpty) {
       throw ArgumentError('User IDs cannot be empty');
@@ -76,21 +51,16 @@ class ChatMessage {
     final sorted = [userA, userB]..sort();
     return sorted.join('_');
   }
-
-  /// Derives a group room ID from a group ID.
   static String deriveGroupRoomId(String groupId) {
     return 'group_$groupId';
   }
-
-  /// Validates that the room ID matches the sender and receiver (1:1 chats).
   bool validateRoomId() {
-    if (groupId != null) return true; // group messages skip 1:1 validation
+    if (groupId != null) return true;
     final expectedRoomId = deriveRoomId(senderId, receiverId);
     return roomId == expectedRoomId;
   }
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
-    // Parse reactions map
     final reactionsRaw = json['reactions'] as Map<String, dynamic>?;
     final reactions = <String, List<String>>{};
     if (reactionsRaw != null) {
@@ -126,8 +96,6 @@ class ChatMessage {
       forwardedFrom: json['forwardedFrom'] as String?,
       isFavorite: json['isFavorite'] as bool? ?? false,
     );
-
-    // Validate room ID integrity (skip for group messages)
     if (message.groupId == null && !message.validateRoomId()) {
       throw FormatException(
         'Invalid room ID: expected ${ChatMessage.deriveRoomId(message.senderId, message.receiverId)}, '
@@ -209,15 +177,11 @@ class ChatMessage {
       isFavorite: isFavorite ?? this.isFavorite,
     );
   }
-
-  /// Toggle a reaction for a given user. Returns a new ChatMessage.
   ChatMessage toggleReaction(String userId, String emoji, [String? action]) {
     final newReactions = Map<String, List<String>>.from(
       reactions.map((k, v) => MapEntry(k, List<String>.from(v))),
     );
     final users = newReactions[emoji] ?? [];
-
-    // If action is specified, use it; otherwise toggle
     final shouldRemove = action == 'remove'
         ? true
         : action == 'add'

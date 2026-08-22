@@ -1,4 +1,4 @@
-package com.example.grychat
+package com.grychat.app
 
 import io.flutter.embedding.android.FlutterActivity
 

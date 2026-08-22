@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'complete_profile_screen.dart';
 
 class WelcomeScreen extends StatefulWidget {
@@ -51,8 +51,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 80),
-              
-              // Custom Overlapping Chat Bubble Logo
               Center(
                 child: SizedBox(
                   width: 120,
@@ -60,7 +58,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Left darker blue speech bubble
                       Positioned(
                         left: 20,
                         top: 20,
@@ -90,7 +87,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           ),
                         ),
                       ),
-                      // Right lighter/accent blue speech bubble
                       Positioned(
                         right: 20,
                         bottom: 20,
@@ -125,8 +121,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              
-              // Welcome text
               const Text(
                 'Welcome',
                 style: TextStyle(
@@ -137,8 +131,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              
-              // Subtitle
               const Text(
                 'Please Sign - in to continue',
                 style: TextStyle(
@@ -148,8 +140,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 ),
               ),
               const SizedBox(height: 60),
-
-              // Phone Number Input Area
               Align(
                 alignment: Alignment.centerLeft,
                 child: Column(
@@ -167,7 +157,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        // Country Code Selector Dropdown
                         DropdownButton<String>(
                           value: _selectedCountryCode,
                           underline: const SizedBox(),
@@ -200,29 +189,33 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           }).toList(),
                         ),
                         const SizedBox(width: 12),
-                        // Phone Number Input Field
                         Expanded(
-                          child: TextField(
-                            controller: _phoneController,
-                            keyboardType: TextInputType.phone,
-                            style: const TextStyle(
-                              color: Color(0xFF171B24),
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.0,
-                            ),
-                            decoration: const InputDecoration(
-                              hintText: '9876543210',
-                              hintStyle: TextStyle(
-                                color: Color(0xFFC4C8D3),
-                                fontWeight: FontWeight.normal,
-                              ),
-                              enabledBorder: UnderlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0xFFE2E6EE),
-                                  width: 1.5,
-                                ),
-                              ),
+                         child: TextField(
+                             controller: _phoneController,
+                             keyboardType: TextInputType.phone,
+                             style: TextStyle(
+                               color: Theme.of(context).colorScheme.onSurface,
+                               fontSize: 16,
+                               fontWeight: FontWeight.bold,
+                               letterSpacing: 1.0,
+                             ),
+                             decoration: InputDecoration(
+                               hintText: '9876543210',
+                               hintStyle: TextStyle(
+                                 color: Theme.of(context)
+                                     .colorScheme
+                                     .onSurface
+                                     .withValues(alpha: 0.35),
+                                 fontWeight: FontWeight.normal,
+                               ),
+                               enabledBorder: UnderlineInputBorder(
+                                 borderSide: BorderSide(
+                                   color: Theme.of(context)
+                                       .colorScheme
+                                       .outlineVariant,
+                                   width: 1.5,
+                                 ),
+                               ),
                               focusedBorder: UnderlineInputBorder(
                                 borderSide: BorderSide(
                                   color: Color(0xFF1B4EBA),
@@ -237,10 +230,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: 80),
-              
-              // Bottom Floating Action Button (Arrow Icon)
               GestureDetector(
                 onTap: _onNext,
                 child: Container(

@@ -1,9 +1,9 @@
 # AI Session Context
 
-**Last Updated**: 2026-08-18
+**Last Updated**: 2026-08-22
 
 ## Current Task
-- All priority items completed - production ready
+- Security audit + UX polish pass complete (session 7). All work UNCOMMITTED on main.
 
 ## Previous Sessions
 - 2026-08-17: Initial context setup, discovered auth inconsistency between Firebase/Supabase
@@ -12,12 +12,57 @@
 - 2026-08-17: Production readiness - security hardening, database persistence, Docker deployment
 - 2026-08-17: Production security audit and fixes - 12 issues resolved
 - 2026-08-18: Completed all remaining priority items (WebRTC cleanup, RLS, security, offline queue, FCM, tests, CI/CD, legal docs)
+- 2026-08-22: GryCode collision fix + deep security audit (backend authz gaps) + Android hardening + client socket auth + dark-mode/UX fixes
 
 ## Important Notes
 - This file tracks what I was working on so I can resume in future sessions
 - **Firebase** = Authentication + Crashlytics + Cloud Messaging
 - **Supabase** = Storage + Database (PostgreSQL)
 - **Docker** runs on Node 22-alpine (required for Supabase SDK WebSocket support)
+- Backend prefers SUPABASE_SERVICE_ROLE_KEY → RLS bypassed server-side; backend code IS the security boundary
+- CI runs `flutter analyze --no-fatal-infos` (any info fails) + `flutter test` + backend `npm ci` (package-lock.json EXISTS ✓)
+- NEVER edit files via PowerShell Set-Content/-replace (corrupts UTF-8); use the Edit tool only
+- GryCode = FNV-1a + murmur3 fmix32, `(h>>>0)%1679616` base36 upper padded 4 → GRY-XXXX; mirrors in backend/index.ts, backend/test.ts, chat_provider.dart MUST stay in sync. Ref values: user_a→GRY-VXRU, user_b→GRY-VZAS, test-user-id-123→GRY-H412, user123→GRY-MANC
+- file_picker is now ^12.0.0 STABLE — API changed: pickFiles() returns List<PlatformFile> directly (no FilePickerResult), PlatformFile has no `.extension` getter (derive from name)
+
+## Changes Made (2026-08-22 - Session 7)
+
+### GryCode Collision Fix
+1. Fixed FNV-1a implementation in all 3 mirrors (backend/index.ts generateShortCodeFromHash(userId, salt=''), backend/test.ts mirror, chat_provider.dart _deriveShortCode with web-safe _mul32 using 16-bit decomposition)
+2. Web-safe masking for Flutter Web JS int32: ((hash>>16)&0xFFFF), ((hash>>13)&0x1FFFFF)
+3. Added collision retry loop in getOrCreatePermanentShortCode (10 salt attempts)
+4. Added deriveShortCodeForTest (@visibleForTesting) + test/short_code_test.dart parity contract (meta ^1.15.0 added to pubspec)
+
+### Backend Security Fixes (index.ts)
+5. CRITICAL register handler: `data.userId || userId` → JWT uid only (identity spoofing)
+6. CRITICAL getMessages: added participant authorization (1:1 via user_profiles query, group via group_members/membership map); non-members get empty history
+7. sendMessage: senderId no longer trusts data.senderId fallback
+8. createGroup: rejects existing groupId (takeover) + validates /^[A-Za-z0-9_-]{6,64}$/
+9. express.json({limit:'1mb'}) moved BEFORE routes (was after → /api/update-username & /api/update-email had undefined req.body = broken)
+10. Crash report email HTML injection fixed via escapeHtml() on all fields
+11. searchUsers no longer returns email addresses
+
+### Client Security Fixes
+12. chat_service.dart connect(): fresh Firebase token per connection attempt passed via 'auth' option; aborts when no token; reconnection:false (app's own backoff loop handles reconnects with fresh tokens — removed fragile (s.io as dynamic).opts['auth'] mutation that sent stale tokens)
+13. login_screen.dart + forgot_password_screen.dart: anti-enumeration generic errors ('user-not-found'/'wrong-password' → 'Invalid email or password'; forgot-password shows success even when user-not-found)
+14. main.dart ErrorWidget.builder no longer leaks raw exception text to users (Crashlytics still gets it)
+15. AndroidManifest: allowBackup=false + fullBackupContent=false, removed READ/WRITE_EXTERNAL_STORAGE + RECEIVE_BOOT_COMPLETED permissions
+16. build.gradle.kts release signing now THROWS if key.properties missing (was silently falling back to debug key)
+17. network_security_config.xml: REMOVED fabricated certificate pin-set (pins were placeholders that would self-DoS api.grychat.com once real); kept dev-only cleartext hosts
+
+### Dependencies
+18. file_picker: ^12.0.0-beta.7 → ^12.0.0 stable (+ API migration in home_screen.dart/chat_screen.dart: pickFiles returns list directly, .extension getter removed)
+19. device_info_plus: exact pin 13.2.0 → ^13.2.0
+
+### UX/UI Polish
+20. complete_profile_screen: removed 'Jhone' prefill bug, saving spinner + button disable, dark-mode-safe inputs/avatar/hints
+21. Dark-mode fixes across welcome_screen (phone input), home_screen (action tiles, search dialog input+result card, list dividers, timestamps/subtitle colors), chat_screen (composer fill), forgot_password_screen (scaffold bg)
+22. App-wide page transitions: FadeUpwards (Android/Windows/Linux), Zoom (iOS/macOS) via PageTransitionsTheme in _buildTheme
+
+### Verification (all green)
+- flutter analyze: No issues found
+- flutter test: 18/18 pass
+- backend npm run test (build + node --test): 11/11 pass
 
 ## Changes Made (2026-08-18 - Session 6: Complete Remaining Items)
 
@@ -100,12 +145,17 @@
 16. ~~**LOW**: Write Privacy Policy & Terms of Service~~ ✓ DONE
 
 ## Remaining Items
+- COMMIT session 7 work (all changes uncommitted on main)
 - Populate `.env.production` with real production values before deploying
 - Generate initial TLS certificate (`certbot certonly --webroot ...`)
-- Add ProGuard/R8 for Android release builds (already configured)
 - Rotate all exposed secrets (Firebase key, JWT secret - may be in git history)
 - Add iOS push notification setup (APNs certificate)
 - Run Supabase RLS migration (updated supabase_setup.sql)
+- supabase_setup.sql is STALE: defines `profiles` table but backend uses `user_profiles`; messages insert omits reply/attachment columns — rewrite to match backend usage before running migration
+- update-email endpoint updates only Supabase profile, not Firebase Auth email (decide desired behavior)
+- Static TURN credentials still come from env; consider ephemeral credential endpoint if TURN provider supports it
+- 192.168.0.0/16 cleartext allowed in network_security_config for LAN dev testing — tighten before store release if unused
+- Optional deeper UX: remaining hardcoded colors exist across screens (grep `Color(0xFF` in lib/ui) — priority hotspots fixed, full sweep not done
 
 ## Deployment Checklist
 Before deploying to production:

@@ -99,7 +99,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required VoidCallback onTap,
   }) {
     return Material(
-      color: const Color(0xFFF4F6FA),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -195,12 +195,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     decoration: InputDecoration(
                       hintText: 'username',
                       hintStyle: TextStyle(
-                        color: const Color(0xFFC4C8D3),
+                        color:
+                            Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.35),
                         letterSpacing: 1,
                         fontWeight: FontWeight.normal,
                       ),
                       filled: true,
-                      fillColor: const Color(0xFFF4F6FA),
+                      fillColor: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withValues(alpha: 0.5),
                       errorText: errorText,
                       prefixIcon: const Icon(
                         Icons.search,
@@ -322,7 +326,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F7FF),
+        color: Theme.of(ctx).colorScheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: const Color(0xFF1B4EBA).withValues(alpha: 0.2),
@@ -599,11 +603,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           bottom: 0,
                           child: GestureDetector(
                             onTap: () async {
-                              final result = await FilePicker.pickFiles(
+                              final files = await FilePicker.pickFiles(
                                 type: FileType.image,
                               );
-                              if (result != null) {
-                                final file = result.files.single;
+                              if (files.isNotEmpty) {
+                                final file = files.single;
                                 final bytes = file.path != null
                                     ? await File(file.path!).readAsBytes()
                                     : await file.readAsBytes();
@@ -1493,10 +1497,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     itemCount: filteredGroups.length + filteredConversations.length,
-                    separatorBuilder: (context, index) => const Divider(
+                    separatorBuilder: (context, index) => Divider(
                       height: 1,
                       indent: 84,
-                      color: Color(0xFFF1F3F7),
+                      color: Theme.of(context).dividerColor.withValues(alpha: 0.15),
                     ),
                     itemBuilder: (context, index) {
                       if (index < filteredGroups.length) {
@@ -1572,8 +1576,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: unreadCount > 0
-                                ? const Color(0xFF171B24)
-                                : const Color(0xFF7E8494),
+                                ? Theme.of(context).colorScheme.onSurface
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withValues(alpha: 0.55),
                             fontSize: 13,
                             fontWeight: unreadCount > 0
                                 ? FontWeight.w600
@@ -1589,7 +1596,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               style: TextStyle(
                                 color: unreadCount > 0
                                     ? const Color(0xFF1B4EBA)
-                                    : const Color(0xFFB0B5C1),
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withValues(alpha: 0.45),
                                 fontSize: 11,
                                 fontWeight: unreadCount > 0
                                     ? FontWeight.bold

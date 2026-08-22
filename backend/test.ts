@@ -1,20 +1,23 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
-// Test the roomId derivation logic (mirrors backend deriveRoomId)
 function deriveRoomId(userA: string, userB: string): string {
   return [userA, userB].sort().join('_');
 }
 
-// Test the short code generation logic (mirrors backend generateShortCode)
-function generateShortCode(userId: string): string {
-  let hash = 0;
-  for (let i = 0; i < userId.length; i++) {
-    const char = userId.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+function generateShortCode(userId: string, salt = ''): string {
+  const input = salt ? `${userId}:${salt}` : userId;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  const code = Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(0, 4);
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  const code = ((hash >>> 0) % 1679616).toString(36).toUpperCase().padStart(4, '0');
   return `GRY-${code}`;
 }
 

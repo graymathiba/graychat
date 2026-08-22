@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:meta/meta.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../config/app_config.dart';
@@ -95,15 +96,28 @@ class MyShortCodeNotifier extends StateNotifier<String> {
       state = code;
     });
   }
-  static String _deriveShortCode(String userId) {
-    int hash = 0;
-    for (int i = 0; i < userId.length; i++) {
-      hash = ((hash << 5) - hash) + userId.codeUnitAt(i);
-      hash = hash.toSigned(32);
-    }
-    final code = hash.abs().toRadixString(36).toUpperCase().padLeft(4, '0');
-    return 'GRY-${code.substring(0, code.length >= 4 ? 4 : code.length).padRight(4, '0')}';
+  static int _mul32(int a, int b) {
+    return ((a & 0xFFFF) * b + (((a >> 16) * b) & 0xFFFF) * 65536)
+        .toUnsigned(32);
   }
+
+  static String _deriveShortCode(String userId) {
+    int hash = 0x811c9dc5;
+    for (int i = 0; i < userId.length; i++) {
+      hash ^= userId.codeUnitAt(i);
+      hash = _mul32(hash, 0x01000193);
+    }
+    hash = (hash ^ ((hash >> 16) & 0xFFFF)).toUnsigned(32);
+    hash = _mul32(hash, 0x85ebca6b);
+    hash = (hash ^ ((hash >> 13) & 0x1FFFFF)).toUnsigned(32);
+    hash = _mul32(hash, 0xc2b2ae35);
+    hash = (hash ^ ((hash >> 16) & 0xFFFF)).toUnsigned(32);
+    final code = (hash % 1679616).toRadixString(36).toUpperCase().padLeft(4, '0');
+    return 'GRY-$code';
+  }
+
+  @visibleForTesting
+  static String deriveShortCodeForTest(String userId) => _deriveShortCode(userId);
 
   @override
   void dispose() {

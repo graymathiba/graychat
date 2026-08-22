@@ -20,7 +20,7 @@ void main() {
       final now = DateTime.now();
       final msg = ChatMessage(
         id: 'test-id-123',
-        roomId: 'room_abc',
+        roomId: ChatMessage.deriveRoomId('sender_1', 'receiver_2'),
         senderId: 'sender_1',
         receiverId: 'receiver_2',
         content: 'Hello world',

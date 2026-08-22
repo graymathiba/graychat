@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -235,10 +235,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
-    final result = await FilePicker.pickFiles(type: FileType.any);
-    if (!mounted || result == null) return;
+    final files = await FilePicker.pickFiles(type: FileType.any);
+    if (!mounted || files.isEmpty) return;
 
-    final file = result.files.single;
+    final file = files.single;
     Uint8List bytes;
     if (file.path != null) {
       bytes = await File(file.path!).readAsBytes();
@@ -253,8 +253,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
-    final extension = (file.extension ?? file.name.split('.').last)
-        .toLowerCase();
+    final nameParts = file.name.split('.');
+    final extension =
+        nameParts.length > 1 ? nameParts.last.toLowerCase() : '';
     final mimeType = _mimeTypeFor(extension);
     await ref
         .read(chatMessagesProvider(widget.roomId).notifier)
@@ -288,7 +289,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       '3g2': 'video/3gpp2',
       'wmv': 'video/x-ms-wmv',
       'flv': 'video/x-flv',
-      'mpeg': 'video/mpeg', // Handled specially below if it's WhatsApp Audio
+      'mpeg': 'video/mpeg',
       'mpg': 'video/mpeg',
       'ogv': 'video/ogg',
       'pdf': 'application/pdf',
@@ -299,25 +300,63 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showEmojiMenu() {
-    const emojis = ['😀', '😂', '😍', '👍', '🙏', '🔥', '🎉', '❤️', '😢', '😎'];
+    const emojis = [
+      '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃',
+      '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙',
+      '🥲', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫',
+      '🤔', '🫡', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄',
+      '😬', '😮‍💨', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒',
+      '🤕', '🤢', '🤮', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳',
+      '🥸', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮', '😯', '😲',
+      '😳', '🥺', '🥹', '😦', '😧', '😨', '😰', '😥', '😢', '😭',
+      '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡',
+      '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺',
+      '👻', '👽', '👾', '🤖', '❤️', '🧡', '💛', '💚', '💙', '💜',
+      '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '💕', '💞', '💓', '💗',
+      '💖', '💘', '💝', '💟', '👍', '👎', '👊', '✊', '🤛', '🤜',
+      '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✌️', '🤞', '🤟', '🤘',
+      '👌', '🤌', '🤏', '👈', '👉', '👆', '👇', '☝️', '✋', '🤚',
+      '🖐️', '🖖', '🫱', '🫲', '🫳', '🫴', '🫷', '🫸', '👋', '🤙',
+      '💪', '🦾', '🖕', '✍️', '🤳', '💅', '🔥', '💯', '💢', '💥',
+      '💫', '💦', '💨', '🕳️', '💣', '💬', '👀', '👁️', '👅', '👄',
+      '🎉', '🎊', '🎈', '🎁', '🎯', '🏆', '⭐', '🌟', '✨', '⚡',
+      '☀️', '🌈', '🎵', '🎶', '🎸', '🎤', '👑', '💎', '🦋', '🌸',
+      '🌹', '🌺', '🍕', '🍔', '🍟', '🍿', '☕', '🍺', '🥤', '🎂',
+    ];
     showModalBottomSheet<void>(
       context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: emojis
-              .map(
-                (emoji) => IconButton(
-                  icon: Text(emoji, style: const TextStyle(fontSize: 28)),
-                  onPressed: () {
-                    _messageController.text += emoji;
-                    _messageController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: _messageController.text.length),
-                    );
-                    Navigator.pop(context);
-                  },
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => SafeArea(
+          child: GridView.builder(
+            controller: scrollController,
+            padding: const EdgeInsets.all(8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 8,
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 4,
+            ),
+            itemCount: emojis.length,
+            itemBuilder: (context, index) {
+              final emoji = emojis[index];
+              return GestureDetector(
+                onTap: () {
+                  _messageController.text += emoji;
+                  _messageController.selection = TextSelection.fromPosition(
+                    TextPosition(offset: _messageController.text.length),
+                  );
+                  Navigator.pop(context);
+                },
+                child: Center(
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
                 ),
-              )
-              .toList(),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -398,8 +437,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (text.isNotEmpty) {
       chatService.sendTypingStatus(widget.roomId, true);
     }
-
-    // Debounce: stop typing after 2 seconds of inactivity
     _typingDebounce?.cancel();
     _typingDebounce = Timer(const Duration(seconds: 2), () {
       chatService.sendTypingStatus(widget.roomId, false);
@@ -417,8 +454,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     });
   }
-
-  /// Returns the appropriate status icon for a sent message
   Widget _buildStatusIcon(String status, {VoidCallback? onRetry}) {
     switch (status) {
       case 'sending':
@@ -448,56 +483,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showReactionPicker(ChatMessage message) {
-    const emojis = ['❤️', '😂', '😍', '👍', '🙏', '🔥', '🎉', '😢', '😎', '😮'];
+    const emojis = [
+      '😀', '😂', '😍', '🥰', '😎', '🤩', '😭', '😤', '🥺', '🤯',
+      '👍', '👎', '👏', '🙌', '💪', '🤝', '✌️', '🤞', '🫶', '🙏',
+      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '💔', '💕', '💯',
+      '🔥', '⭐', '✨', '🎉', '🎊', '🏆', '💎', '☀️', '🌈', '👀',
+    ];
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: emojis
-                    .map(
-                      (emoji) => GestureDetector(
-                        onTap: () {
-                          ref
-                              .read(
-                                chatMessagesProvider(widget.roomId).notifier,
-                              )
-                              .toggleReaction(message.id, emoji);
-                          Navigator.pop(context);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(8.0),
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 28),
-                          ),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.35,
+          minChildSize: 0.2,
+          maxChildSize: 0.6,
+          expand: false,
+          builder: (context, scrollController) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: GridView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 8,
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 4,
+                  ),
+                  itemCount: emojis.length,
+                  itemBuilder: (context, index) {
+                    final emoji = emojis[index];
+                    return GestureDetector(
+                      onTap: () {
+                        ref
+                            .read(
+                              chatMessagesProvider(widget.roomId).notifier,
+                            )
+                            .toggleReaction(message.id, emoji);
+                        Navigator.pop(context);
+                      },
+                      child: Center(
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 26),
                         ),
                       ),
-                    )
-                    .toList(),
+                    );
+                  },
+                ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.reply),
-              title: const Text('Reply'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => _replyToMessage = message);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.forward),
-              title: const Text('Forward'),
-              onTap: () {
-                Navigator.pop(context);
-                _showForwardDialog(message);
-              },
-            ),
-          ],
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() => _replyToMessage = message);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.forward),
+                title: const Text('Forward'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showForwardDialog(message);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -681,8 +744,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final localUserId = ref.watch(localUserIdProvider);
     final typingMap = ref.watch(typingStatusProvider(widget.roomId));
     final presenceMap = ref.watch(userPresenceProvider);
-
-    // Resolve peer display name: passed name > presence map > local peers DB > fallback
     final peers = ref.watch(peersProvider);
     final peerMatch = peers.where((p) => p.id == widget.peerId);
     final presenceData = presenceMap[widget.peerId];
@@ -691,16 +752,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         presenceData?['displayName'] as String? ??
         (peerMatch.isNotEmpty ? peerMatch.first.deviceName : null) ??
         'User ${widget.peerId.length >= 8 ? widget.peerId.substring(0, 8) : widget.peerId}';
-
-    // Presence
     final isOnline = presenceData != null && presenceData['status'] == 'online';
-
-    // Typing indicator
     final isTyping = typingMap.entries
         .where((e) => e.key != localUserId && e.value == true)
         .isNotEmpty;
-
-    // Auto-scroll when new messages arrive
     if (messages.isNotEmpty) {
       _scrollToBottom();
     }
@@ -714,7 +769,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: () {
-              // Refresh conversation list on exit
               ref.read(conversationListProvider.notifier).refresh();
               Navigator.pop(context);
             },
@@ -841,7 +895,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             Column(
               children: [
-                // Message Feed
                 Expanded(
                   child: messages.isEmpty
                       ? Center(
@@ -880,8 +933,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           },
                         ),
                 ),
-
-                // Typing indicator bar
                 if (isTyping)
                   Container(
                     width: double.infinity,
@@ -915,8 +966,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ],
                     ),
                   ),
-
-                // Reply preview bar
                 if (_replyToMessage != null)
                   Container(
                     width: double.infinity,
@@ -974,8 +1023,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ],
                     ),
                   ),
-
-                // Message Input Bar
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -999,7 +1046,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         tooltip: 'Attach image, audio, video, or file',
                         onPressed: _pickAttachment,
                       ),
-                      // Text Field
                       Expanded(
                         child: TextField(
                           controller: _messageController,
@@ -1010,7 +1056,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
                             ),
                             filled: true,
-                            fillColor: const Color(0xFFF4F6FA),
+                            fillColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.5),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 10,
@@ -1032,8 +1081,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-
-                      // Mic / Send Button
                       if (_messageController.text.trim().isEmpty &&
                           !_isRecording)
                         GestureDetector(
@@ -1068,7 +1115,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ],
             ),
-            // Recording overlay
             if (_isRecording)
               Positioned(
                 bottom: 0,
@@ -1180,7 +1226,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Reply quote
               if (message.replyToMessageId != null)
                 _buildReplyQuote(message, isMe),
               if (isImage && message.attachmentBase64 != null)
@@ -1321,7 +1366,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               const SizedBox(height: 4),
-              // Reactions display
               if (message.reactions.isNotEmpty)
                 _buildReactionsDisplay(message, isMe),
               Row(

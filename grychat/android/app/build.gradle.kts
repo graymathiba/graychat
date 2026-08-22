@@ -43,15 +43,18 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists() && 
+            signingConfig = if (keystorePropertiesFile.exists() &&
                                (keystoreProperties["storePassword"] as String?)?.isNotEmpty() == true) {
                 signingConfigs.getByName("release")
             } else {
-                // Fallback to debug signing for development
-                signingConfigs.getByName("debug")
+                throw GradleException(
+                    "Release signing config missing: create android/key.properties " +
+                    "(keyAlias, keyPassword, storeFile, storePassword). " +
+                    "Falling back to debug signing is not allowed for release builds."
+                )
             }
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

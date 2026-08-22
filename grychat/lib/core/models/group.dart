@@ -1,7 +1,5 @@
-/// Group model for group chat conversations.
-library;
+﻿library;
 
-/// Hive typeId: 5
 class Group {
   final String id;
   final String name;

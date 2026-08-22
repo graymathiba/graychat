@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -102,7 +102,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               radius: 18,
               backgroundColor: const Color(0xFF1B4EBA),
               child: Text(
-                widget.group.name[0].toUpperCase(),
+                widget.group.name.isNotEmpty
+                    ? widget.group.name[0].toUpperCase()
+                    : '?',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
             ),
@@ -135,7 +137,6 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           IconButton(
             icon: Icon(Icons.info_outline, color: colorScheme.onSurface),
             onPressed: () {
-              // TODO: Show group info
             },
           ),
         ],

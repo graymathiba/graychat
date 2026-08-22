@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/network/auth_service.dart';
 
@@ -37,7 +37,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await authService.resetPassword(email);
       if (mounted) setState(() { _sent = true; _isLoading = false; });
     } on FirebaseAuthException catch (e) {
-      print('[ForgotPassword] Firebase error: code=${e.code}, message=${e.message}');
+      // Never reveal whether an account exists.
+      if (e.code == 'user-not-found') {
+        if (mounted) setState(() { _sent = true; _isLoading = false; });
+        return;
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -45,7 +49,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         });
       }
     } catch (e) {
-      print('[ForgotPassword] Unexpected error: $e');
+
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -57,8 +61,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   String _firebaseError(FirebaseAuthException e) {
     switch (e.code) {
-      case 'user-not-found':
-        return 'No account found with this email';
       case 'invalid-email':
         return 'Invalid email address';
       case 'too-many-requests':
@@ -73,7 +75,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FC),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
