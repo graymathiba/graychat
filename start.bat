@@ -15,6 +15,7 @@ if not exist "%~dp0.env" (
 
 :: Build Flutter app with dart-define from .env (if present)
 echo [1/4] Building Flutter app...
+set CMAKE_POLICY_VERSION_MINIMUM=3.5
 set DART_DEFINES=
 if exist "%~dp0.env" (
     for /f "usebackq tokens=1,2 delims==" %%a in ("%~dp0.env") do (
@@ -35,10 +36,10 @@ if exist "build\windows\x64\runner\Debug\grychat.exe" (
 )
 cd /d "%~dp0"
 
-:: Start backend server
+:: Start backend server (tsx, per package.json scripts)
 echo [2/4] Starting backend server...
-start "GryChat Server" /D "%~dp0backend" npx ts-node index.ts
-timeout /t 3 /nobreak >nul
+start "GryChat Server" /D "%~dp0backend" cmd /k "npm start"
+timeout /t 5 /nobreak >nul
 
 :: Start first instance
 echo [3/4] Starting instance 1 (peer1)...

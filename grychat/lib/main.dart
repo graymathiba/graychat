@@ -49,9 +49,13 @@ void _logCrash(Object error, StackTrace stack) {
 
 bool _bootstrapped = false;
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  runZonedGuarded(() => _bootstrap(), _logCrash);
+void main() {
+  // Bindings MUST be initialized inside the same zone that calls runApp,
+  // otherwise Flutter reports a fatal zone mismatch on startup.
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
+    _bootstrap();
+  }, _logCrash);
 }
 
 Future<void> _bootstrap() async {

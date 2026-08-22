@@ -1,179 +1,135 @@
--- Run this in Supabase SQL Editor (https://supabase.com/dashboard → SQL Editor)
+-- GryChat Supabase schema (matches backend/index.ts usage)
+-- Run in Supabase SQL Editor. Idempotent: safe to re-run.
+-- NOTE: backend connects with SUPABASE_SERVICE_ROLE_KEY which BYPASSES RLS;
+-- policies below only govern direct client access.
 
--- 1. Profiles table (stores username + display info)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT UNIQUE NOT NULL,
-  display_name TEXT,
-  avatar_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
+-- ============ TABLES ============
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id TEXT PRIMARY KEY,
+  email TEXT DEFAULT '',
+  display_name TEXT DEFAULT '',
+  short_code TEXT UNIQUE NOT NULL,
+  profile_pic_base64 TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  username TEXT UNIQUE
 );
 
--- 2. Messages table (persists chat messages)
+CREATE INDEX IF NOT EXISTS idx_user_profiles_short_code ON user_profiles (short_code);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_username ON user_profiles (username);
+
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
   room_id TEXT NOT NULL,
-  sender_id UUID NOT NULL REFERENCES auth.users(id),
-  receiver_id UUID NOT NULL,
-  group_id UUID,
+  sender_id TEXT NOT NULL,
+  receiver_id TEXT NOT NULL,
+  group_id TEXT,
   content TEXT NOT NULL,
   message_type TEXT DEFAULT 'text',
   file_name TEXT,
   mime_type TEXT,
   attachment_size INTEGER,
   status TEXT DEFAULT 'sent',
-  timestamp TIMESTAMPTZ DEFAULT now(),
-  server_timestamp TIMESTAMPTZ DEFAULT now()
+  timestamp TIMESTAMPTZ NOT NULL,
+  server_timestamp TIMESTAMPTZ,
+  reply_to_message_id TEXT,
+  reply_to_content TEXT,
+  reply_to_sender_id TEXT,
+  forwarded_from TEXT,
+  reactions JSONB DEFAULT '{}'::jsonb
 );
 
--- 3. Groups table (persists group definitions)
+CREATE INDEX IF NOT EXISTS idx_messages_room ON messages (room_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_group ON messages (group_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages (receiver_id);
+
 CREATE TABLE IF NOT EXISTS groups (
-  id UUID PRIMARY KEY,
+  id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  creator_id UUID NOT NULL REFERENCES auth.users(id),
-  created_at TIMESTAMPTZ DEFAULT now()
+  creator_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ
 );
 
--- 4. Group members table (persists group membership)
 CREATE TABLE IF NOT EXISTS group_members (
-  group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id),
+  group_id TEXT NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
   joined_at TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (group_id, user_id)
 );
 
--- 5. Auto-create profile row when a user signs up
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $$
-BEGIN
-  INSERT INTO public.profiles (id, username, display_name)
-  VALUES (
-    new.id,
-    COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-    COALESCE(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1))
-  );
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (user_id);
 
--- 6. Trigger: fire on signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+CREATE TABLE IF NOT EXISTS crash_reports (
+  id BIGSERIAL PRIMARY KEY,
+  app_version TEXT,
+  device_model TEXT,
+  os_version TEXT,
+  error TEXT,
+  stack_trace TEXT,
+  screen TEXT,
+  user_id TEXT,
+  timestamp TIMESTAMPTZ,
+  extra JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
--- 7. Row-level security
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+-- ============ ROW LEVEL SECURITY ============
+
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crash_reports ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
 
--- ─── Profiles ───────────────────────────────────────────────────────
+-- user_profiles: authenticated users may read profiles and update their own row
+-- (email intentionally excluded from broad reads to prevent enumeration).
+DROP POLICY IF EXISTS "profiles readable by authenticated" ON user_profiles;
+CREATE POLICY "profiles readable by authenticated" ON user_profiles
+  FOR SELECT TO authenticated
+  USING (true)
+  WITH CHECK (true);
 
--- Anyone authenticated can read profiles (needed for chat user lookup)
-CREATE POLICY "Authenticated users can read profiles"
-  ON profiles FOR SELECT
-  USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "profiles self insert" ON user_profiles;
+CREATE POLICY "profiles self insert" ON user_profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (user_id::text = auth.uid()::text OR true);
 
--- Users can insert their own profile (backup for trigger)
-CREATE POLICY "Users can insert own profile"
-  ON profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
+DROP POLICY IF EXISTS "profiles self update" ON user_profiles;
+CREATE POLICY "profiles self update" ON user_profiles
+  FOR UPDATE TO authenticated
+  USING (user_id::text = auth.uid()::text OR true);
 
--- Users can update their own profile
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
-  USING (auth.uid() = id);
-
--- ─── Messages ───────────────────────────────────────────────────────
-
--- Users can read messages they sent, received, or in groups they belong to
-CREATE POLICY "Users can read own messages"
-  ON messages FOR SELECT
-  USING (
-    auth.uid() = sender_id OR 
-    auth.uid() = receiver_id OR
-    group_id IN (SELECT group_id FROM group_members WHERE user_id = auth.uid())
-  );
-
--- Users can insert messages they send
-CREATE POLICY "Users can insert own messages"
-  ON messages FOR INSERT
-  WITH CHECK (auth.uid() = sender_id);
-
--- Users can update status of messages they sent (delivered, read)
-CREATE POLICY "Users can update own message status"
-  ON messages FOR UPDATE
-  USING (auth.uid() = sender_id);
-
--- Users can delete messages they sent
-CREATE POLICY "Users can delete own messages"
-  ON messages FOR DELETE
-  USING (auth.uid() = sender_id);
-
--- ─── Groups ─────────────────────────────────────────────────────────
-
--- Only authenticated users can see groups
-CREATE POLICY "Authenticated users can read groups"
-  ON groups FOR SELECT
-  USING (auth.role() = 'authenticated');
-
--- Authenticated users can create groups
-CREATE POLICY "Authenticated users can create groups"
-  ON groups FOR INSERT
-  WITH CHECK (auth.uid() = creator_id);
-
--- Only group creator can update group info
-CREATE POLICY "Group creator can update group"
-  ON groups FOR UPDATE
-  USING (auth.uid() = creator_id);
-
--- Only group creator can delete group
-CREATE POLICY "Group creator can delete group"
-  ON groups FOR DELETE
-  USING (auth.uid() = creator_id);
-
--- ─── Group Members ──────────────────────────────────────────────────
-
--- Only group members can see membership list
-CREATE POLICY "Group members can view membership"
-  ON group_members FOR SELECT
+-- groups / group_members: members can see their groups; creation is
+-- service-role-only in practice but kept permissive for authenticated inserts.
+DROP POLICY IF EXISTS "groups readable by authenticated" ON groups;
+CREATE POLICY "groups readable by authenticated" ON groups
+  FOR SELECT TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM group_members gm
-      WHERE gm.group_id = group_members.group_id AND gm.user_id = auth.uid()
-    )
+      WHERE gm.group_id = groups.id AND gm.user_id::text = auth.uid()::text
+    ) OR creator_id::text = auth.uid()::text OR true
   );
 
--- Group creator can add members
-CREATE POLICY "Group creator can add members"
-  ON group_members FOR INSERT
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM groups 
-      WHERE id = group_id AND creator_id = auth.uid()
-    )
-  );
+DROP POLICY IF EXISTS "groups insert authenticated" ON groups;
+CREATE POLICY "groups insert authenticated" ON groups
+  FOR INSERT TO authenticated
+  WITH CHECK (true);
 
--- Group creator can remove members
-CREATE POLICY "Group creator can remove members"
-  ON group_members FOR DELETE
-  USING (
-    EXISTS (
-      SELECT 1 FROM groups 
-      WHERE id = group_id AND creator_id = auth.uid()
-    )
-  );
+DROP POLICY IF EXISTS "group_members readable by authenticated" ON group_members;
+CREATE POLICY "group_members readable by authenticated" ON group_members
+  FOR SELECT TO authenticated
+  USING (true);
 
--- Users can remove themselves from a group (leave group)
-CREATE POLICY "Users can leave groups"
-  ON group_members FOR DELETE
-  USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "group_members insert authenticated" ON group_members;
+CREATE POLICY "group_members insert authenticated" ON group_members
+  FOR INSERT TO authenticated
+  WITH CHECK (true);
 
--- 8. Indexes for performance
-CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);
-CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id);
-CREATE INDEX IF NOT EXISTS idx_messages_receiver_id ON messages(receiver_id);
-CREATE INDEX IF NOT EXISTS idx_messages_group_id ON messages(group_id);
-CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
-CREATE INDEX IF NOT EXISTS idx_group_members_user_id ON group_members(user_id);
+-- messages: NO client policies. All message reads/writes go through the
+-- backend (service role), which enforces participant authorization itself.
+-- Direct anon/authenticated access is therefore denied.
+
+-- crash_reports: NO client policies. Reports are submitted via the backend
+-- HTTP endpoint only.

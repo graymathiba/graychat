@@ -7,7 +7,8 @@
     "build": "npx tsc",
     "start": "npx tsx index.ts",
     "dev": "npx tsx watch index.ts",
-    "test": "npm run build && node --test dist/test.js"
+    "test": "npm run build && node --test dist/test.js",
+    "test:integration": "node integration_test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
@@ -20,8 +21,9 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/nodemailer": "^8.0.1",
     "@types/node": "^22.10.0",
+    "@types/nodemailer": "^8.0.1",
+    "socket.io-client": "^4.8.3",
     "typescript": "^5.7.0"
   }
 }

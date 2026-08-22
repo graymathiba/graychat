@@ -14,10 +14,12 @@ class ChatService {
   bool _isDisposed = false;
   bool _isConnecting = false;
   Timer? _reconnectTimer;
+  Timer? _connectWatchdog;
   Timer? _presenceHeartbeat;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 10;
   static const Duration _baseReconnectDelay = Duration(seconds: 2);
+  static const Duration _maxReconnectDelay = Duration(seconds: 60);
+  static const Duration _connectTimeout = Duration(seconds: 25);
 
   final _connectionController = StreamController<bool>.broadcast();
   final _messageController = StreamController<ChatMessage>.broadcast();
@@ -89,6 +91,7 @@ class ChatService {
   Future<void> connect() async {
     if (_isDisposed || _isConnecting || isConnected) return;
     _isConnecting = true;
+    _cancelReconnectTimer();
 
     try {
       // Fresh token for EVERY connection attempt so long-lived sessions
@@ -96,15 +99,21 @@ class ChatService {
       String? token;
       try {
         final user = FirebaseAuth.instance.currentUser;
-        token = await user?.getIdToken();
+        token = await user?.getIdToken().timeout(
+              const Duration(seconds: 10),
+            );
       } catch (_) {}
 
       if (token == null) {
-        AppLogger.warn('ChatService', 'No auth token - aborting connect');
+        AppLogger.warn('ChatService', 'No auth token yet - retrying later');
         _isConnecting = false;
         _connectionController.add(false);
+        _scheduleReconnect();
         return;
       }
+
+      // Tear down any stale half-open socket before opening a new one.
+      _teardownSocket();
 
       _socket = io.io(serverUrl, {
         'transports': ['websocket'],
@@ -116,7 +125,21 @@ class ChatService {
 
       final s = _socket!;
 
+      // Watchdog: if the server never answers the handshake (cold start,
+      // dropped SYN, hung proxy), force-close and retry instead of hanging
+      // in the connecting state forever.
+      _connectWatchdog = Timer(_connectTimeout, () {
+        if (_isDisposed || isConnected || !identical(_socket, s)) return;
+        AppLogger.warn('ChatService', 'Connection timed out - retrying');
+        _isConnecting = false;
+        _teardownSocket();
+        _connectionController.add(false);
+        _scheduleReconnect();
+      });
+
       s.on('connect', (_) {
+        _connectWatchdog?.cancel();
+        _connectWatchdog = null;
         AppLogger.success('ChatService', 'Connected', {'socketId': s.id});
         _isConnecting = false;
         _reconnectAttempts = 0;
@@ -127,17 +150,24 @@ class ChatService {
       });
 
       s.on('disconnect', (_) {
+        _connectWatchdog?.cancel();
+        _connectWatchdog = null;
         AppLogger.warn('ChatService', 'Disconnected');
+        _isConnecting = false;
         _connectionController.add(false);
         _stopPresenceHeartbeat();
-        _handleDisconnect();
+        _scheduleReconnect();
       });
 
       s.on('connect_error', (error) {
+        _connectWatchdog?.cancel();
+        _connectWatchdog = null;
         AppLogger.error('ChatService', 'Connection error', error);
         _isConnecting = false;
+        if (identical(_socket, s)) _teardownSocket();
         _connectionController.add(false);
-        _handleDisconnect();
+        _stopPresenceHeartbeat();
+        _scheduleReconnect();
       });
 
       s.on('myShortCode', (data) {
@@ -301,7 +331,9 @@ class ChatService {
       if (!_isDisposed) s.connect();
     } catch (e) {
       _isConnecting = false;
-      _handleDisconnect();
+      _teardownSocket();
+      _connectionController.add(false);
+      _scheduleReconnect();
     }
   }
 
@@ -482,21 +514,21 @@ class ChatService {
     }
   }
 
-  void _handleDisconnect() {
+  void _scheduleReconnect() {
     if (_isDisposed) return;
-    _reconnectTimer?.cancel();
+    _cancelReconnectTimer();
 
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      return;
-    }
-
+    // Exponential backoff that keeps retrying forever but never exceeds
+    // _maxReconnectDelay, so a long server cold-start or outage still
+    // recovers automatically once the server comes back.
+    final delay = Duration(
+      seconds: (_baseReconnectDelay.inSeconds * (1 << _reconnectAttempts.clamp(0, 5)))
+          .clamp(_baseReconnectDelay.inSeconds, _maxReconnectDelay.inSeconds),
+    );
     _reconnectAttempts++;
-    final delaySeconds =
-        (_baseReconnectDelay.inSeconds * (1 << (_reconnectAttempts - 1))).clamp(
-          0,
-          120,
-        );
-    final delay = Duration(seconds: delaySeconds);
+
+    AppLogger.info('ChatService', 'Reconnecting in ${delay.inSeconds}s',
+        {'attempt': _reconnectAttempts});
 
     _reconnectTimer = Timer(delay, () {
       if (!_isDisposed && !isConnected) {
@@ -505,9 +537,26 @@ class ChatService {
     });
   }
 
-  void disconnect() {
+  void _cancelReconnectTimer() {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+  }
+
+  void _teardownSocket() {
+    _connectWatchdog?.cancel();
+    _connectWatchdog = null;
+    final stale = _socket;
+    _socket = null;
+    if (stale == null) return;
+    try {
+      stale.clearListeners();
+      stale.disconnect();
+      stale.dispose();
+    } catch (_) {}
+  }
+
+  void disconnect() {
+    _cancelReconnectTimer();
     _reconnectAttempts = 0;
     _stopPresenceHeartbeat();
     try {
@@ -518,6 +567,7 @@ class ChatService {
   void dispose() {
     _isDisposed = true;
     disconnect();
+    _teardownSocket();
     _connectionController.close();
     _messageController.close();
     _ackController.close();

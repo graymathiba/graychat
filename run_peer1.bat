@@ -2,6 +2,7 @@
 setlocal enabledelayedexpansion
 
 :: Build and run peer 1 with environment variables from .env
+set CMAKE_POLICY_VERSION_MINIMUM=3.5
 set DART_DEFINES=
 if exist "%~dp0.env" (
     for /f "usebackq tokens=1,2 delims==" %%a in ("%~dp0.env") do (

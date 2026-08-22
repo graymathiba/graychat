@@ -155,6 +155,9 @@ async function persistMessage(message: any): Promise<void> {
         file_name: message.fileName,
         mime_type: message.mimeType,
         attachment_size: message.attachmentSize,
+        reply_to_message_id: message.replyToMessageId || null,
+        reply_to_content: message.replyToContent || null,
+        reply_to_sender_id: message.replyToSenderId || null,
         status: message.status,
         timestamp: message.timestamp,
         server_timestamp: message.serverTimestamp,
@@ -294,7 +297,14 @@ io.use(async (socket, next) => {
     if (!token) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn('DEV MODE: Accepting unauthenticated connection');
-        socket.data.user = { uid: 'dev-user', email: 'dev@localhost' } as any;
+        // Dev-only: honor a per-socket dev identity so multiple local
+        // peers can be tested independently. Never honored in production.
+        const rawDevUid =
+          typeof socket.handshake.auth?.devUid === 'string'
+            ? socket.handshake.auth.devUid.trim().slice(0, 64)
+            : '';
+        const devUid = rawDevUid ? `dev-${rawDevUid}` : 'dev-user';
+        socket.data.user = { uid: devUid, email: `${devUid}@localhost` } as any;
         return next();
       }
       return next(new Error('Authentication required'));
@@ -512,12 +522,12 @@ io.on('connection', (socket) => {
         return;
       }
       query = db.from('messages').select(
-        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from'
+        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from, reactions'
       ).eq('group_id', groupId);
     } else {
       // 1:1 room — only actual participants may read it.
       query = db.from('messages').select(
-        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from'
+        'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from, reactions'
       ).eq('room_id', roomId).or(`sender_id.eq.${verifiedUid},receiver_id.eq.${verifiedUid}`);
     }
 
@@ -545,6 +555,7 @@ io.on('connection', (socket) => {
           replyToMessageId: row.reply_to_message_id,
           replyToContent: row.reply_to_content,
           replyToSenderId: row.reply_to_sender_id,
+          reactions: row.reactions && typeof row.reactions === 'object' ? row.reactions : {},
           groupId: row.group_id,
           forwardedFrom: row.forwarded_from,
         })).reverse();
@@ -585,7 +596,7 @@ io.on('connection', (socket) => {
     });
   }
 
-  socket.on('sendMessage', (data: any) => {
+  socket.on('sendMessage', async (data: any) => {
     try {
       const rateLimitId = (socket.data.registeredUserId || userId) as string;
       if (!checkRateLimit(rateLimitId, 'message')) {
@@ -621,7 +632,36 @@ io.on('connection', (socket) => {
       const validMessageTypes = ['text', 'image', 'audio', 'video', 'file', 'application/pdf'];
       const messageType = validMessageTypes.includes(data.messageType) ? data.messageType : 'text';
 
-      const correctRoomId = deriveRoomId(senderId, receiverId);
+      // Reply metadata (optional, sanitized)
+      const replyToMessageId = typeof data.replyToMessageId === 'string' && data.replyToMessageId
+        ? data.replyToMessageId.slice(0, 128) : null;
+      const replyToContent = typeof data.replyToContent === 'string' && data.replyToContent
+        ? data.replyToContent.slice(0, 200) : null;
+      const replyToSenderId = typeof data.replyToSenderId === 'string' && data.replyToSenderId
+        ? data.replyToSenderId.slice(0, 128) : null;
+
+      // Group vs 1:1 routing
+      const groupId = typeof data.groupId === 'string' && data.groupId ? data.groupId : null;
+      let correctRoomId: string;
+      if (groupId) {
+        const group = groups.get(groupId);
+        let isMember = group?.memberIds.includes(senderId) ?? false;
+        if (!isMember && supabase) {
+          try {
+            const { data: membership } = await (supabase as any).from('group_members')
+              .select('user_id').eq('group_id', groupId).eq('user_id', senderId).maybeSingle();
+            isMember = !!membership;
+          } catch { /* treat as non-member */ }
+        }
+        if (!isMember) {
+          socket.emit('messageError', { id: data?.id, error: 'Not a group member' });
+          return;
+        }
+        correctRoomId = `group_${groupId}`;
+      } else {
+        if (!receiverId) throw new Error('Invalid message participants');
+        correctRoomId = deriveRoomId(senderId, receiverId);
+      }
 
       const message = {
         id: data.id,
@@ -637,6 +677,10 @@ io.on('connection', (socket) => {
         status: 'sent',
         timestamp: data.timestamp,
         serverTimestamp,
+        replyToMessageId,
+        replyToContent,
+        replyToSenderId,
+        ...(groupId ? { groupId } : {}),
       };
 
       persistMessage(message);
@@ -747,13 +791,59 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('reaction', (data: any) => {
+  socket.on('reaction', async (data: any) => {
     if (!data || typeof data !== 'object') return;
     const senderId = socket.data.registeredUserId || userId;
     const targetId = data.targetId as string;
     const messageId = data.messageId as string;
-    const emoji = data.emoji as string;
+    const emoji = typeof data.emoji === 'string' ? data.emoji.slice(0, 16) : '';
+    const action = data.action === 'remove' ? 'remove' : 'add';
     if (!targetId || !messageId || !emoji) return;
+
+    // Persist the toggle so reactions survive reloads.
+    if (supabase && messageId.length <= 128) {
+      try {
+        const db = supabase as any;
+        const { data: row } = await db.from('messages')
+          .select('sender_id, receiver_id, group_id, reactions')
+          .eq('id', messageId)
+          .maybeSingle();
+        if (row) {
+          let allowed = false;
+          const rowGroupId = row.group_id as string | null;
+          if (rowGroupId) {
+            allowed = groups.get(rowGroupId)?.memberIds.includes(senderId) ?? false;
+            if (!allowed) {
+              const { data: membership } = await db.from('group_members')
+                .select('user_id').eq('group_id', rowGroupId).eq('user_id', senderId).maybeSingle();
+              allowed = !!membership;
+            }
+          } else {
+            allowed = row.sender_id === senderId || row.receiver_id === senderId;
+          }
+
+          if (allowed) {
+            const current = (row.reactions && typeof row.reactions === 'object')
+              ? { ...row.reactions } : {};
+            const users = Array.isArray(current[emoji]) ? [...current[emoji]] : [];
+            if (action === 'add') {
+              if (!users.includes(senderId)) users.push(senderId);
+            } else {
+              const idx = users.indexOf(senderId);
+              if (idx >= 0) users.splice(idx, 1);
+            }
+            if (users.length > 0) {
+              current[emoji] = users;
+            } else {
+              delete current[emoji];
+            }
+            await db.from('messages').update({ reactions: current }).eq('id', messageId);
+          }
+        }
+      } catch (err) {
+        console.error('reaction persist error:', err);
+      }
+    }
 
     if (data.groupId) {
       const groupId = data.groupId as string;
@@ -766,7 +856,7 @@ io.on('connection', (socket) => {
             messageId,
             emoji,
             groupId,
-            action: data.action,
+            action,
           });
         }
       }
@@ -777,7 +867,7 @@ io.on('connection', (socket) => {
             senderId,
             messageId,
             emoji,
-            action: data.action,
+            action,
           });
         }
       }
@@ -1000,12 +1090,31 @@ app.post('/api/update-username', async (req, res) => {
       return res.status(409).json({ error: 'Username already taken', suggestions });
     }
 
+    // The live schema requires short_code (NOT NULL), so resolve the
+    // permanent code first — otherwise first-time profile inserts violate
+    // the constraint and the update fails.
+    let shortCode: string;
+    try {
+      shortCode = await getOrCreatePermanentShortCode(userId);
+    } catch (err: any) {
+      console.error('update-username short-code resolution failed:', err?.message || err);
+      shortCode = generateShortCodeFromHash(userId);
+    }
+
     // Update username
     const { error } = await db
       .from('user_profiles')
-      .upsert({ user_id: userId, username: normalized }, { onConflict: 'user_id' });
+      .upsert(
+        {
+          user_id: userId,
+          short_code: shortCode,
+          username: normalized,
+        },
+        { onConflict: 'user_id' },
+      );
 
     if (error) {
+      console.error('update-username upsert failed:', error.message);
       return res.status(500).json({ error: 'Failed to update username' });
     }
 
@@ -1060,14 +1169,31 @@ app.post('/api/update-email', async (req, res) => {
       return res.status(409).json({ error: 'Email is already in use by another account' });
     }
 
-    // Update email in Supabase
-    const { error } = await db
-      .from('user_profiles')
-      .upsert({ user_id: userId, email: newEmail }, { onConflict: 'user_id' });
+  // Same NOT NULL short_code requirement as update-username.
+  let profileShortCode: string;
+  try {
+    profileShortCode = await getOrCreatePermanentShortCode(userId);
+  } catch (err: any) {
+    console.error('update-email short-code resolution failed:', err?.message || err);
+    profileShortCode = generateShortCodeFromHash(userId);
+  }
 
-    if (error) {
-      return res.status(500).json({ error: 'Failed to update email in database' });
-    }
+  // Update email in Supabase
+  const { error } = await db
+    .from('user_profiles')
+    .upsert(
+      {
+        user_id: userId,
+        short_code: profileShortCode,
+        email: newEmail,
+      },
+      { onConflict: 'user_id' },
+    );
+
+  if (error) {
+    console.error('update-email upsert failed:', error.message);
+    return res.status(500).json({ error: 'Failed to update email in database' });
+  }
 
     return res.json({ success: true, email: newEmail });
   } catch {
