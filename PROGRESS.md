@@ -3,7 +3,9 @@
 **Last Updated**: 2026-08-24 (session 9)
 
 ## Current Task
-- Session 9: DIAGNOSED + FIXED mobile "not connecting" root cause; committed session 8+9 together, rebuilt both apps.
+- Session 9: DIAGNOSED + FIXED mobile "not connecting" root cause. Fix COMMITTED+PUSHED as 58eaa89 but NOT LIVE on Render after 20 min → **auto-deploy did not trigger; user must Manual Deploy from Render dashboard** ("Manual Deploy → Deploy latest commit"), ideally also set NODE_ENV=production + FIREBASE_SERVICE_ACCOUNT env vars.
+- Both apps REBUILT with all fixes: grychat/build/app/outputs/flutter-apk/app-release.apk + build/windows/x64/runner/Release/grychat.exe
+- Post-deploy verification recipe (proven working): identitytoolkit REST signUp w/ API key → idToken → socket.io-client handshake auth.token → expect CONNECTED instead of 'Invalid authentication token'
 
 ## Root Cause Found (2026-08-24): Mobile could not connect
 - Live Render server (graychat.onrender.com) runs with NODE_ENV != production and NO FIREBASE_SERVICE_ACCOUNT → fallback `initializeApp({projectId})` used env default 'dev-project' → every REAL client token failed audience check → "Invalid authentication token" for all mobile clients. Unauthenticated sockets were accepted via dev-mode fallback (why it LOOKED half-alive).
