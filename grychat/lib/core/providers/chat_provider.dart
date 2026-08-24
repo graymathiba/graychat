@@ -410,6 +410,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     String text,
     String receiverId, {
     ChatMessage? replyTo,
+    String? groupId,
   }) async {
     final message = ChatMessage(
       id: const Uuid().v4(),
@@ -423,6 +424,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
       replyToMessageId: replyTo?.id,
       replyToContent: replyTo?.content,
       replyToSenderId: replyTo?.senderId,
+      groupId: groupId,
     );
 
     await _dbService.addChatMessage(message);
@@ -472,7 +474,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
     });
   }
 
-  void toggleReaction(String messageId, String emoji) {
+  void toggleReaction(String messageId, String emoji, {String? groupId}) {
     final message = state.firstWhere(
       (m) => m.id == messageId,
       orElse: () => throw Exception('Message not found'),
@@ -495,6 +497,7 @@ class ChatMessagesNotifier extends StateNotifier<List<ChatMessage>> {
       messageId: messageId,
       emoji: emoji,
       action: action,
+      groupId: groupId,
     );
   }
 

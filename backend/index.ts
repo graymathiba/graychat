@@ -16,6 +16,7 @@ if (!firebaseApp) {
       firebaseApp = initializeApp({
         credential: cert(JSON.parse(serviceAccount)),
       });
+      console.log('Firebase Admin initialized with service account');
     } catch (err: any) {
       console.error('Firebase init failed:', err.message);
       process.exit(1);
@@ -25,9 +26,15 @@ if (!firebaseApp) {
       console.error('FIREBASE_SERVICE_ACCOUNT missing in production');
       process.exit(1);
     }
+    // Credential-less fallback: verifyIdToken still works here because it
+    // only needs Google's public certs, BUT the projectId must match the
+    // audience claim of client tokens or every real login is rejected.
     firebaseApp = initializeApp({
-      projectId: process.env.FIREBASE_PROJECT_ID ?? 'dev-project',
+      projectId: process.env.FIREBASE_PROJECT_ID ?? 'graychat-db6a0',
     });
+    console.warn(
+      `Firebase Admin initialized WITHOUT service account (projectId=${process.env.FIREBASE_PROJECT_ID ?? 'graychat-db6a0'}). Set FIREBASE_SERVICE_ACCOUNT for production.`,
+    );
   }
 }
 
@@ -317,6 +324,9 @@ io.use(async (socket, next) => {
       socket.data.user = decodedToken;
       next();
     } catch (error: any) {
+      console.error(
+        `Socket auth failed: code=${error?.code ?? 'unknown'} msg=${error?.message ?? error}`,
+      );
       return next(new Error('Invalid authentication token'));
     }
   } catch (error) {

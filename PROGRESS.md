@@ -1,18 +1,22 @@
 # AI Session Context
 
-**Last Updated**: 2026-08-22
+**Last Updated**: 2026-08-24 (session 9)
 
 ## Current Task
-- Security audit + UX polish pass complete (session 7). All work UNCOMMITTED on main.
+- Session 9: DIAGNOSED + FIXED mobile "not connecting" root cause; committed session 8+9 together, rebuilt both apps.
+
+## Root Cause Found (2026-08-24): Mobile could not connect
+- Live Render server (graychat.onrender.com) runs with NODE_ENV != production and NO FIREBASE_SERVICE_ACCOUNT → fallback `initializeApp({projectId})` used env default 'dev-project' → every REAL client token failed audience check → "Invalid authentication token" for all mobile clients. Unauthenticated sockets were accepted via dev-mode fallback (why it LOOKED half-alive).
+- Proven by minting a real Firebase token from the app's own project via identitytoolkit REST and getting rejected by live server.
+- FIX in index.ts: fallback projectId now defaults to 'graychat-db6a0' (verifyIdToken only needs Google public certs, so credential-less init verifies fine IF projectId matches audience); added startup logs naming the init path; socket auth failure now logs error.code.
+- STILL RECOMMENDED (user must do in Render dashboard, no API access from CLI): set NODE_ENV=production + FIREBASE_SERVICE_ACCOUNT (JSON from .env) so dev-mode unauthenticated fallback is disabled.
+- PC CLOCK IS ~355s FAST — breaks OAuth token exchange (firebase-admin deleteUser got invalid_grant). Needs admin: run as admin `Start-Service w32time; w32tm /resync /force`. Not fixed this session (no elevation).
+- Diagnostic test account grychat-diag-test@example.com was created then DELETED (uid CA29XmSKZ8ghpWQ7cGlXZJRUwa32). Nothing left behind.
+- upload-keystore.p12 was NOT gitignored (.gitignore covered *.keystore/*.jks but not *.p12) — fixed android/.gitignore before it could be committed.
 
 ## Previous Sessions
-- 2026-08-17: Initial context setup, discovered auth inconsistency between Firebase/Supabase
-- 2026-08-17: Fixed auth - rewrote AuthService to use Firebase Auth, updated backend to use Firebase Admin SDK
-- 2026-08-17: Enforced backend JWT auth, built Group Chat UI
-- 2026-08-17: Production readiness - security hardening, database persistence, Docker deployment
-- 2026-08-17: Production security audit and fixes - 12 issues resolved
-- 2026-08-18: Completed all remaining priority items (WebRTC cleanup, RLS, security, offline queue, FCM, tests, CI/CD, legal docs)
-- 2026-08-22: GryCode collision fix + deep security audit (backend authz gaps) + Android hardening + client socket auth + dark-mode/UX fixes
+- 2026-08-22: GryCode collision fix + deep security audit + Android hardening + client socket auth + dark-mode/UX fixes (committed 44a2cb7)
+- Earlier sessions: see git log
 
 ## Important Notes
 - This file tracks what I was working on so I can resume in future sessions
@@ -25,7 +29,38 @@
 - GryCode = FNV-1a + murmur3 fmix32, `(h>>>0)%1679616` base36 upper padded 4 → GRY-XXXX; mirrors in backend/index.ts, backend/test.ts, chat_provider.dart MUST stay in sync. Ref values: user_a→GRY-VXRU, user_b→GRY-VZAS, test-user-id-123→GRY-H412, user123→GRY-MANC
 - file_picker is now ^12.0.0 STABLE — API changed: pickFiles() returns List<PlatformFile> directly (no FilePickerResult), PlatformFile has no `.extension` getter (derive from name)
 
-## Changes Made (2026-08-22 - Session 7)
+## Changes Made (2026-08-24 - Session 9: Connectivity root cause + fix)
+1. backend/index.ts fallback Firebase init: projectId default 'dev-project' → 'graychat-db6a0' (audience match = real tokens verify without service account)
+2. Startup logging: which Firebase init path (service account vs credential-less) + projectId
+3. Socket auth middleware logs error.code on verifyIdToken failure
+4. android/.gitignore: added **/*.p12 (upload-keystore.p12 was committable by accident)
+5. Verification method that worked: identitytoolkit REST signUp → idToken → socket.io-client handshake with auth.token; fake token vs no-token vs real token distinguished failure modes precisely
+
+## Changes Made (2026-08-22 - Session 8: Replies/Reactions/Voice + Builds)
+
+### Discovery
+- Replies UI, reaction chips, voice recording (hold-to-mic via record pkg) + audio/video playback ALREADY existed in chat_screen.dart; model + Hive adapter already had all fields. The gaps were backend persistence and group-chat parity.
+
+### Backend (index.ts)
+1. persistMessage now stores reply_to_message_id/content/sender_id
+2. sendMessage: passes sanitized reply fields; GROUP ROUTING FIXED — messages with groupId validate membership (memory→DB fallback) and relay to group_x room (was: forced 1:1 deriveRoomId, so live group delivery was broken); handler now async
+3. reaction handler: async; validates emoji/action, authorizes sender (participant for 1:1, member for groups), persists toggle into messages.reactions JSONB before relaying
+4. getMessages: selects + returns reactions map
+
+### Client
+5. chat_provider: sendMessage/toggleReaction accept groupId passthrough
+6. group_chat_screen REWRITTEN: provider-based send (local Hive persistence), long-press action sheet (5 quick reactions + Reply), quoted-reply render in bubble, reaction chips with counts, reply preview bar above composer, typing debounce
+
+### SQL
+7. supabase_setup.sql REWRITTEN to match real usage: user_profiles (short_code/username/display_name/email/profile_pic_base64), messages (+reply cols, reactions JSONB), groups, group_members, crash_reports + RLS policies (messages/crash_reports deny-all client access by design)
+
+### Builds & Verification (all green)
+- flutter analyze: 0 issues; flutter test 18/18; backend build + tests 11/11
+- WINDOWS BUILT: grychat/build/windows/x64/runner/Release/grychat.exe (needed CMAKE_POLICY_VERSION_MINIMUM=3.5 env var for CMake 4.x; CMAKE_INSTALL_PREFIX guard made unconditional in windows/CMakeLists.txt)
+- ANDROID BUILT: grychat/build/app/outputs/flutter-apk/app-release.apk (131MB fat APK)
+- Generated local upload keystore android/app/upload-keystore.p12 (PKCS12, alias=upload, pass GryChatUpload2026!) + android/key.properties — BOTH GITIGNORED, never commit
+
+## Changes Made (2026-08-22 - Session 7: Security Audit + UX)
 
 ### GryCode Collision Fix
 1. Fixed FNV-1a implementation in all 3 mirrors (backend/index.ts generateShortCodeFromHash(userId, salt=''), backend/test.ts mirror, chat_provider.dart _deriveShortCode with web-safe _mul32 using 16-bit decomposition)
@@ -148,7 +183,7 @@
 - COMMIT session 7 work (all changes uncommitted on main)
 - Populate `.env.production` with real production values before deploying
 - Generate initial TLS certificate (`certbot certonly --webroot ...`)
-- Rotate all exposed secrets (Firebase key, JWT secret - may be in git history)
+- ~~Rotate all exposed secrets~~ (declined per user decision, 2026-08-24 — do not re-suggest)
 - Add iOS push notification setup (APNs certificate)
 - Run Supabase RLS migration (updated supabase_setup.sql)
 - supabase_setup.sql is STALE: defines `profiles` table but backend uses `user_profiles`; messages insert omits reply/attachment columns — rewrite to match backend usage before running migration
@@ -159,7 +194,7 @@
 
 ## Deployment Checklist
 Before deploying to production:
-1. [ ] Rotate JWT_SECRET, SUPABASE_JWT_SECRET, SUPABASE_ANON_KEY
+1. [x] ~~Rotate JWT_SECRET, SUPABASE_JWT_SECRET, SUPABASE_ANON_KEY~~ (skipped per user decision)
 2. [ ] Populate `.env.production` with all required values
 3. [ ] Run updated `supabase_setup.sql` in Supabase SQL Editor
 4. [ ] Generate initial TLS cert: `docker-compose run --rm certbot certonly --webroot --webroot-path=/var/www/certbot -d api.grychat.com`
