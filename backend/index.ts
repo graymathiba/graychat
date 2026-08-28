@@ -38,12 +38,37 @@ if (!firebaseApp) {
   }
 }
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 let supabase: ReturnType<typeof createClient> | null = null;
+{
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey);
+  if (!supabaseUrl || !supabaseKey) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        'FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) are required in production.',
+      );
+      process.exit(1);
+    }
+    console.warn(
+      'Supabase credentials missing — running without database. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for full functionality.',
+    );
+  } else if (!supabaseUrl.startsWith('https://')) {
+    console.error(
+      `FATAL: SUPABASE_URL must start with "https://". Got: "${supabaseUrl.slice(0, 40)}..."`,
+    );
+    if (process.env.NODE_ENV === 'production') process.exit(1);
+  } else {
+    try {
+      supabase = createClient(supabaseUrl, supabaseKey, {
+        realtime: { params: { eventsPerSecond: 10 } },
+      });
+      console.log('Supabase client initialized successfully');
+    } catch (err: any) {
+      console.error('FATAL: Failed to initialize Supabase client:', err.message);
+      if (process.env.NODE_ENV === 'production') process.exit(1);
+    }
+  }
 }
 
 function generateShortCodeFromHash(userId: string, salt = ''): string {
