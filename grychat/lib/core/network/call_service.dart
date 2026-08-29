@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../config/app_config.dart';
 import '../utils/app_logger.dart';
@@ -37,6 +40,54 @@ class CallService {
   final String localUserId;
   String localDisplayName = '';
   bool _listeningForSignals = false;
+
+  Map<String, dynamic>? _resolvedIceConfig;
+
+  Future<Map<String, dynamic>> _resolveIceConfig() async {
+    if (_resolvedIceConfig != null) return _resolvedIceConfig!;
+
+    final merged = <String, dynamic>{
+      'iceServers': List<Map<String, dynamic>>.from(
+        (AppConfig.iceServers['iceServers'] as List).cast<Map<String, dynamic>>(),
+      ),
+    };
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final token = await user?.getIdToken().timeout(
+            const Duration(seconds: 10),
+          );
+      if (token != null) {
+        final resp = await http
+            .get(
+              Uri.parse(
+                '${AppConfig.backendUrl}/turn-credentials',
+              ),
+              headers: {'Authorization': 'Bearer $token'},
+            )
+            .timeout(const Duration(seconds: 5));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as Map<String, dynamic>;
+          final turnServers = data['iceServers'] as List? ?? const [];
+          for (final server in turnServers) {
+            if (server is Map<String, dynamic>) {
+              merged['iceServers'].add(server);
+            }
+          }
+          AppLogger.info(
+            'CallService',
+            'Using TURN for WebRTC',
+            {'turnServers': turnServers.length},
+          );
+        }
+      }
+    } catch (e) {
+      AppLogger.warn('CallService', 'TURN credentials unavailable', e);
+    }
+
+    _resolvedIceConfig = merged;
+    return merged;
+  }
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -179,8 +230,9 @@ class CallService {
       _callType = callTypeStr == 'video' ? CallType.video : CallType.audio;
       _updateState(CallState.incomingRinging);
 
+      final ice = await _resolveIceConfig();
       await _setupLocalMedia();
-      _peerConnection = await createPeerConnection(AppConfig.iceServers);
+      _peerConnection = await createPeerConnection(ice);
       _setupPeerCallbacks(_peerConnection!, isIncoming: true);
 
       if (_localStream != null) {
@@ -243,7 +295,11 @@ class CallService {
     if (_localStream != null) return;
 
     final constraints = <String, dynamic>{
-      'audio': true,
+      'audio': {
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+      },
       'video': _callType == CallType.video
           ? {'width': 640, 'height': 480, 'frameRate': 30}
           : false,
@@ -275,8 +331,9 @@ class CallService {
     _callType = type;
     _updateState(CallState.outgoingRinging);
 
+    final ice = await _resolveIceConfig();
     await _setupLocalMedia();
-    _peerConnection = await createPeerConnection(AppConfig.iceServers);
+    _peerConnection = await createPeerConnection(ice);
     _setupPeerCallbacks(_peerConnection!, isIncoming: false);
 
     if (_localStream != null) {

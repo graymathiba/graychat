@@ -280,7 +280,16 @@ class ChatService {
 
       s.on('searchUsersResult', (data) {
         final results = (data['results'] as List?)
-            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            ?.map((e) {
+              final raw = Map<String, dynamic>.from(e as Map);
+              return <String, dynamic>{
+                'userId': raw['user_id'] ?? raw['userId'],
+                'displayName': raw['display_name'] ?? raw['displayName'] ?? '',
+                'username': raw['username'] ?? '',
+                'shortCode': raw['short_code'] ?? raw['shortCode'] ?? '',
+                'profilePicBase64': raw['profile_pic_base64'] ?? raw['profilePicBase64'] ?? '',
+              };
+            })
             .toList() ?? [];
         _searchResultController.add(results);
       });

@@ -33,6 +33,14 @@
           'stun:stun1.l.google.com:19302',
         ],
       },
+      {
+        'urls': [
+          'turn:free.expressturn.com:3478?transport=udp',
+          'turn:free.expressturn.com:3478?transport=tcp',
+        ],
+        'username': '000000002103287095',
+        'credential': 'TSfD0bS+5dbq3KG5VMIQMkZ4824=',
+      },
     ],
   };
 }

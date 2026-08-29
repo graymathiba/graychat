@@ -322,6 +322,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildSearchAvatar(Map<String, dynamic> user) {
+    final pic = user['profilePicBase64'] as String? ?? '';
+    if (pic.isNotEmpty) {
+      try {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Image.memory(
+            base64Decode(pic),
+            width: 36,
+            height: 36,
+            fit: BoxFit.cover,
+          ),
+        );
+      } catch (_) {}
+    }
+    final username = user['username'] as String? ?? '';
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1B4EBA),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        username.isNotEmpty ? username[0].toUpperCase() : '?',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   Widget _buildUserCard(Map<String, dynamic> user, BuildContext ctx, StateSetter setDialogState) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -334,24 +368,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: const BoxDecoration(
-              color: Color(0xFF1B4EBA),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              (user['displayName'] as String? ?? '?').isNotEmpty
-                  ? (user['displayName'] as String)[0].toUpperCase()
-                  : '?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          _buildSearchAvatar(user),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -376,7 +393,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           GestureDetector(
             onTap: () {
-              final targetId = user['userId'] as String;
+              final targetId = user['userId'] as String?;
+              if (targetId == null || targetId.isEmpty) return;
               _resolveSub?.cancel();
               Navigator.pop(ctx);
               final localUserId = ref.read(localUserIdProvider);
