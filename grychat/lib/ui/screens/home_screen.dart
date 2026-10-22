@@ -1084,6 +1084,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
           ),
         );
       } catch (_) {}
@@ -1098,6 +1099,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            gaplessPlayback: true,
           ),
         );
       } else {
@@ -1110,6 +1112,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               width: size,
               height: size,
               fit: BoxFit.cover,
+              gaplessPlayback: true,
             ),
           );
         }
@@ -1180,6 +1183,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1B4EBA),
         elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1B4EBA), Color(0xFF163da3)],
+            ),
+          ),
+        ),
         leading: Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.menu, color: Colors.white),
@@ -1512,9 +1524,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ],
                     ),
                   )
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    itemCount: filteredGroups.length + filteredConversations.length,
+                : RefreshIndicator(
+                    color: const Color(0xFF1B4EBA),
+                    onRefresh: () async {
+                      ref.read(conversationListProvider.notifier).refresh();
+                      ref.read(chatServiceProvider).getConversations();
+                    },
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      itemCount: filteredGroups.length + filteredConversations.length,
                     separatorBuilder: (context, index) => Divider(
                       height: 1,
                       indent: 84,
@@ -1539,11 +1558,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           (peerMatch.isNotEmpty
                               ? peerMatch.first.deviceName
                               : 'User ${peerId.length >= 8 ? peerId.substring(0, 8) : peerId}');
+                      final presencePic =
+                          presenceData?['profilePicBase64'] as String?;
+                      final storedPic = peerMatch.isNotEmpty
+                          ? peerMatch.first.profilePicBase64
+                          : null;
                       final peerPic =
-                          presenceData?['profilePicBase64'] as String? ??
-                          (peerMatch.isNotEmpty
-                              ? peerMatch.first.profilePicBase64
-                              : null);
+                          (presencePic != null && presencePic.isNotEmpty)
+                              ? presencePic
+                              : ((storedPic != null && storedPic.isNotEmpty)
+                                    ? storedPic
+                                    : null);
                       final presence = presenceMap[peerId];
                       final isOnline =
                           presence != null && presence['status'] == 'online';
@@ -1557,7 +1582,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       return ListTile(
                         leading: Stack(
                           children: [
-                            _buildAvatar(peerName, null, peerPic),
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: 0.14),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: _buildAvatar(peerName, null, peerPic),
+                            ),
                             Positioned(
                               right: 0,
                               bottom: 0,
@@ -1581,10 +1618,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         title: Text(
                           peerName,
                           style: TextStyle(
-                            color: const Color(0xFF171B24),
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontWeight: unreadCount > 0
                                 ? FontWeight.w800
-                                : FontWeight.bold,
+                                : FontWeight.w600,
                             fontSize: 16,
                           ),
                         ),
@@ -1629,12 +1666,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 padding: const EdgeInsets.only(top: 4.0),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
+                                    horizontal: 7,
+                                    vertical: 2.5,
                                   ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF1B4EBA),
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     unreadCount > 99 ? '99+' : '$unreadCount',
@@ -1659,6 +1696,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         },
                       );
                     },
+                    ),
                   ),
           ),
         ],

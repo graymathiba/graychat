@@ -601,6 +601,112 @@ io.on('connection', (socket) => {
       });
   });
 
+  socket.on('getConversations', async () => {
+    if (!supabase) {
+      socket.emit('conversations', { conversations: [] });
+      return;
+    }
+    const verifiedUid = (socket.data.user?.uid || '') as string;
+    if (!verifiedUid) {
+      socket.emit('conversations', { conversations: [] });
+      return;
+    }
+    const db = supabase as any;
+    const mapRow = (row: any) => ({
+      id: row.id,
+      roomId: row.room_id,
+      senderId: row.sender_id,
+      receiverId: row.receiver_id,
+      content: row.content,
+      messageType: row.message_type || 'text',
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      attachmentSize: row.attachment_size,
+      status: row.status || 'sent',
+      timestamp: row.timestamp,
+      serverTimestamp: row.server_timestamp,
+      replyToMessageId: row.reply_to_message_id,
+      replyToContent: row.reply_to_content,
+      replyToSenderId: row.reply_to_sender_id,
+      reactions: row.reactions && typeof row.reactions === 'object' ? row.reactions : {},
+      groupId: row.group_id,
+      forwardedFrom: row.forwarded_from,
+    });
+
+    try {
+      // Latest message per room where the user participated (both directions).
+      const { data: mine, error } = await db
+        .from('messages')
+        .select(
+          'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from, reactions'
+        )
+        .or(`sender_id.eq.${verifiedUid},receiver_id.eq.${verifiedUid}`)
+        .order('server_timestamp', { ascending: false })
+        .limit(500);
+      if (error) {
+        socket.emit('conversations', { conversations: [] });
+        return;
+      }
+
+      // Groups the user belongs to but did not personally send to/from.
+      let groupRows: any[] = [];
+      const { data: membership } = await db
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', verifiedUid)
+        .limit(100);
+      const groupIds = (membership || []).map((m: any) => m.group_id as string);
+      if (groupIds.length > 0) {
+        const { data: rows, error: ge } = await db
+          .from('messages')
+          .select(
+            'id, room_id, sender_id, receiver_id, content, message_type, file_name, mime_type, attachment_size, status, timestamp, server_timestamp, reply_to_message_id, reply_to_content, reply_to_sender_id, group_id, forwarded_from, reactions'
+          )
+          .in('group_id', groupIds)
+          .order('server_timestamp', { ascending: false })
+          .limit(500);
+        if (!ge) groupRows = rows || [];
+      }
+
+      // Unread counts (rows addressed to the user that have not been read).
+      const unreadByRoom = new Map<string, number>();
+      const { data: unreadRows } = await db
+        .from('messages')
+        .select('id, room_id')
+        .eq('receiver_id', verifiedUid)
+        .neq('status', 'read')
+        .limit(500);
+      for (const row of unreadRows || []) {
+        const roomId = (row as any).room_id as string;
+        if (roomId) unreadByRoom.set(roomId, (unreadByRoom.get(roomId) || 0) + 1);
+      }
+
+      // Keep the most recent message per room across both result sets.
+      const personalRows = mine || [];
+      const byRoom = new Map<string, any>();
+      for (const row of personalRows.concat(groupRows)) {
+        const roomId = row.room_id as string;
+        if (!roomId) continue;
+        if (!byRoom.has(roomId)) byRoom.set(roomId, row);
+      }
+
+      const conversations = Array.from(byRoom.values()).map((row) => {
+        const m = mapRow(row);
+        return {
+          ...m,
+          peerId:
+            m.senderId === verifiedUid ? m.receiverId : m.senderId,
+          isGroup: !!m.groupId,
+          unreadCount: unreadByRoom.get(m.roomId) || 0,
+        };
+      });
+
+      socket.emit('conversations', { conversations });
+    } catch {
+      socket.emit('conversations', { conversations: [] });
+    }
+  });
+
   socket.on('join-room', (roomId: string) => {
     const participantIds = roomId.split('_');
     const registeredId = socket.data.registeredUserId || userId;

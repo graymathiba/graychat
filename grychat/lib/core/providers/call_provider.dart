@@ -7,7 +7,7 @@ final callServiceProvider = Provider<CallService>((ref) {
   final localUserId = ref.watch(localUserIdProvider);
 
   final service = CallService(
-    chatService: chatService,
+    socket: chatService.socket,
     localUserId: localUserId,
   );
 

@@ -1,21 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:http/http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
-import '../../config/app_config.dart';
 import '../utils/app_logger.dart';
-import 'chat_service.dart';
 
-enum CallState {
-  idle,
-  outgoingRinging,
-  incomingRinging,
-  connecting,
-  active,
-  ended,
-}
+enum CallState { idle, outgoingRinging, incomingRinging, connecting, active, ended }
 
 enum CallType { audio, video }
 
@@ -36,58 +24,8 @@ class CallInfo {
 }
 
 class CallService {
-  final ChatService chatService;
+  final io.Socket _socket;
   final String localUserId;
-  String localDisplayName = '';
-  bool _listeningForSignals = false;
-
-  Map<String, dynamic>? _resolvedIceConfig;
-
-  Future<Map<String, dynamic>> _resolveIceConfig() async {
-    if (_resolvedIceConfig != null) return _resolvedIceConfig!;
-
-    final merged = <String, dynamic>{
-      'iceServers': List<Map<String, dynamic>>.from(
-        (AppConfig.iceServers['iceServers'] as List).cast<Map<String, dynamic>>(),
-      ),
-    };
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      final token = await user?.getIdToken().timeout(
-            const Duration(seconds: 10),
-          );
-      if (token != null) {
-        final resp = await http
-            .get(
-              Uri.parse(
-                '${AppConfig.backendUrl}/turn-credentials',
-              ),
-              headers: {'Authorization': 'Bearer $token'},
-            )
-            .timeout(const Duration(seconds: 5));
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as Map<String, dynamic>;
-          final turnServers = data['iceServers'] as List? ?? const [];
-          for (final server in turnServers) {
-            if (server is Map<String, dynamic>) {
-              merged['iceServers'].add(server);
-            }
-          }
-          AppLogger.info(
-            'CallService',
-            'Using TURN for WebRTC',
-            {'turnServers': turnServers.length},
-          );
-        }
-      }
-    } catch (e) {
-      AppLogger.warn('CallService', 'TURN credentials unavailable', e);
-    }
-
-    _resolvedIceConfig = merged;
-    return merged;
-  }
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -101,31 +39,28 @@ class CallService {
   Duration _callDuration = Duration.zero;
 
   final _callInfoController = StreamController<CallInfo?>.broadcast();
-  final _videoStateController = StreamController<void>.broadcast();
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
   bool _localRendererInitialized = false;
   bool _remoteRendererInitialized = false;
 
   Stream<CallInfo?> get callInfoStream => _callInfoController.stream;
-  Stream<void> get videoStateStream => _videoStateController.stream;
   RTCVideoRenderer get localRenderer => _localRenderer;
   RTCVideoRenderer get remoteRenderer => _remoteRenderer;
   CallState get state => _state;
   CallType get callType => _callType;
   String get remotePeerId => _remotePeerId;
 
-  CallService({required this.chatService, required this.localUserId}) {
-    chatService.connectionStream.listen((connected) {
-      if (connected && !_listeningForSignals) {
-        _listenForCallSignals();
-        _listeningForSignals = true;
-      }
-    });
-  }
+  static const _iceServers = {
+    'iceServers': [
+      {'urls': 'stun:stun.l.google.com:19302'},
+      {'urls': 'stun:stun1.l.google.com:19302'},
+    ],
+  };
 
-  io.Socket? get _socket =>
-      chatService.isConnected ? chatService.socket : null;
+  CallService({required this._socket, required this.localUserId}) {
+    _listenForCallSignals();
+  }
 
   void _updateState(CallState newState) {
     _state = newState;
@@ -136,104 +71,36 @@ class CallService {
     if (_state == CallState.idle) {
       _callInfoController.add(null);
     } else {
-      _callInfoController.add(
-        CallInfo(
-          peerId: _remotePeerId,
-          peerName: _remotePeerName,
-          callType: _callType,
-          state: _state,
-          duration: _callDuration,
-        ),
-      );
+      _callInfoController.add(CallInfo(
+        peerId: _remotePeerId,
+        peerName: _remotePeerName,
+        callType: _callType,
+        state: _state,
+        duration: _callDuration,
+      ));
     }
   }
 
-  void _emitVideoState() {
-    _videoStateController.add(null);
-  }
-
-  void _setupPeerCallbacks(RTCPeerConnection pc, {bool isIncoming = false}) {
-    final tag = isIncoming ? 'incoming' : 'outgoing';
-
-    pc.onTrack = (event) {
-      if (_state == CallState.idle || _state == CallState.ended) return;
-      AppLogger.success('CallService', 'onTrack ($tag)', {
-        'streams': event.streams.length,
-        'trackKind': event.track.kind,
-      });
-      if (event.streams.isNotEmpty) {
-        _remoteStream = event.streams[0];
-        _remoteRenderer.srcObject = _remoteStream;
-        _emitVideoState();
-      }
-    };
-
-    pc.onIceCandidate = (candidate) {
-      _socket?.emit('call:ice_candidate', {
-        'targetId': _remotePeerId,
-        'data': {'candidate': candidate.toMap()},
-      });
-    };
-
-    pc.onIceConnectionState = (RTCIceConnectionState iceState) {
-      AppLogger.info('CallService', 'ICE state ($tag)', {
-        'state': iceState.name,
-      });
-      if (iceState == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          iceState == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        if (_state != CallState.active &&
-            _state != CallState.idle &&
-            _state != CallState.ended) {
-          _startDurationTimer();
-          _updateState(CallState.active);
-          _emitVideoState();
-        }
-      } else if (iceState ==
-              RTCIceConnectionState.RTCIceConnectionStateFailed ||
-          iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-          iceState == RTCIceConnectionState.RTCIceConnectionStateClosed) {
-        if (_state != CallState.idle && _state != CallState.ended) {
-          endCall();
-        }
-      }
-    };
-
-    pc.onConnectionState = (RTCPeerConnectionState state) {
-      AppLogger.info('CallService', 'Peer state ($tag)', {'state': state.name});
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        if (_state != CallState.idle && _state != CallState.ended) {
-          endCall();
-        }
-      }
-    };
-  }
-
   void _listenForCallSignals() {
-    final s = _socket;
-    if (s == null) return;
-
-    s.on('call:offer', (data) async {
-      final senderId = data['senderId'] as String;
-      final inner = data['data'] as Map<String, dynamic>;
-      final offer = inner['offer'] as Map<String, dynamic>;
-      final callerName = inner['callerName'] as String? ?? 'Unknown';
-      final callTypeStr = inner['callType'] as String? ?? 'audio';
+    _socket.on('call_offer', (data) async {
+      final callerId = data['callerId'] as String;
+      final callerName = data['callerName'] as String? ?? 'Unknown';
+      final offer = data['offer'];
+      final callTypeStr = data['callType'] as String? ?? 'audio';
 
       AppLogger.info('CallService', 'Incoming call', {
         'from': callerName,
         'type': callTypeStr,
       });
 
-      _remotePeerId = senderId;
+      _remotePeerId = callerId;
       _remotePeerName = callerName;
       _callType = callTypeStr == 'video' ? CallType.video : CallType.audio;
       _updateState(CallState.incomingRinging);
 
-      final ice = await _resolveIceConfig();
+      // Pre-setup peer connection and tracks for quick answer
       await _setupLocalMedia();
-      _peerConnection = await createPeerConnection(ice);
-      _setupPeerCallbacks(_peerConnection!, isIncoming: true);
+      _peerConnection = await createPeerConnection(_iceServers);
 
       if (_localStream != null) {
         for (final track in _localStream!.getTracks()) {
@@ -241,45 +108,63 @@ class CallService {
         }
       }
 
+      _peerConnection!.onTrack = (event) {
+        if (event.streams.isNotEmpty) {
+          _remoteStream = event.streams[0];
+          _remoteRenderer.srcObject = _remoteStream;
+        }
+      };
+
+      _peerConnection!.onIceCandidate = (candidate) {
+        _socket.emit('call_ice_candidate', {
+          'receiverId': _remotePeerId,
+          'candidate': candidate.toMap(),
+        });
+      };
+
+      _peerConnection!.onConnectionState = (state) {
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          endCall();
+        }
+      };
+
       await _peerConnection!.setRemoteDescription(
         RTCSessionDescription(offer['sdp'], offer['type']),
       );
     });
 
-    s.on('call:answer', (data) async {
-      final inner = data['data'] as Map<String, dynamic>;
-      final answer = inner['answer'] as Map<String, dynamic>;
-      AppLogger.info(
-        'CallService',
-        'Answer received - setting remote desc',
-        {},
-      );
+    _socket.on('call_answer', (data) async {
+      final answer = data['answer'];
+      AppLogger.info('CallService', 'Call answered', {});
       await _peerConnection?.setRemoteDescription(
         RTCSessionDescription(answer['sdp'], answer['type']),
       );
+      _startDurationTimer();
+      _updateState(CallState.active);
     });
 
-    s.on('call:reject', (data) {
+    _socket.on('call_reject', (data) {
       AppLogger.info('CallService', 'Call rejected', data);
-      _updateState(CallState.ended);
       _cleanup();
-      _scheduleIdleTimeout();
+      _updateState(CallState.ended);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (_state == CallState.ended) _updateState(CallState.idle);
+      });
     });
 
-    s.on('call:hangup', (data) {
+    _socket.on('call_hangup', (data) {
       AppLogger.info('CallService', 'Call hung up', data);
-      _updateState(CallState.ended);
       _cleanup();
-      _scheduleIdleTimeout();
+      _updateState(CallState.ended);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (_state == CallState.ended) _updateState(CallState.idle);
+      });
     });
 
-    s.on('call:ice_candidate', (data) async {
-      final inner = data['data'] as Map<String, dynamic>?;
-      final candidate = inner?['candidate'] as Map<String, dynamic>?;
+    _socket.on('call_ice_candidate', (data) async {
+      final candidate = data['candidate'];
       if (candidate != null && _peerConnection != null) {
-        AppLogger.info('CallService', 'Received ICE candidate', {
-          'sdpMid': candidate['sdpMid'],
-        });
         await _peerConnection!.addCandidate(
           RTCIceCandidate(
             candidate['candidate'],
@@ -295,21 +180,13 @@ class CallService {
     if (_localStream != null) return;
 
     final constraints = <String, dynamic>{
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-      },
+      'audio': true,
       'video': _callType == CallType.video
           ? {'width': 640, 'height': 480, 'frameRate': 30}
           : false,
     };
 
-    try {
-      _localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (e) {
-      AppLogger.error('CallService', 'getUserMedia failed', e);
-    }
+    _localStream = await navigator.mediaDevices.getUserMedia(constraints);
 
     if (!_localRendererInitialized) {
       await _localRenderer.initialize();
@@ -331,10 +208,8 @@ class CallService {
     _callType = type;
     _updateState(CallState.outgoingRinging);
 
-    final ice = await _resolveIceConfig();
     await _setupLocalMedia();
-    _peerConnection = await createPeerConnection(ice);
-    _setupPeerCallbacks(_peerConnection!, isIncoming: false);
+    _peerConnection = await createPeerConnection(_iceServers);
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
@@ -342,19 +217,34 @@ class CallService {
       }
     }
 
+    _peerConnection!.onTrack = (event) {
+      if (event.streams.isNotEmpty) {
+        _remoteStream = event.streams[0];
+        _remoteRenderer.srcObject = _remoteStream;
+      }
+    };
+
+    _peerConnection!.onIceCandidate = (candidate) {
+      _socket.emit('call_ice_candidate', {
+        'receiverId': _remotePeerId,
+        'candidate': candidate.toMap(),
+      });
+    };
+
+    _peerConnection!.onConnectionState = (state) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        endCall();
+      }
+    };
+
     final offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
 
-    AppLogger.info('CallService', 'Sending offer', {'target': _remotePeerId});
-    _socket?.emit('call:offer', {
-      'targetId': _remotePeerId,
-      'data': {
-        'offer': {'sdp': offer.sdp, 'type': offer.type},
-        'callerName': localDisplayName.isNotEmpty
-            ? localDisplayName
-            : localUserId,
-        'callType': type == CallType.video ? 'video' : 'audio',
-      },
+    _socket.emit('call_offer', {
+      'receiverId': _remotePeerId,
+      'offer': {'sdp': offer.sdp, 'type': offer.type},
+      'callType': type == CallType.video ? 'video' : 'audio',
     });
   }
 
@@ -366,35 +256,30 @@ class CallService {
     final answer = await _peerConnection!.createAnswer();
     await _peerConnection!.setLocalDescription(answer);
 
-    AppLogger.info('CallService', 'Sending answer', {'target': _remotePeerId});
-    _socket?.emit('call:answer', {
-      'targetId': _remotePeerId,
-      'data': {
-        'answer': {'sdp': answer.sdp, 'type': answer.type},
-      },
+    _socket.emit('call_answer', {
+      'callerId': _remotePeerId,
+      'answer': {'sdp': answer.sdp, 'type': answer.type},
     });
+
+    _startDurationTimer();
+    _updateState(CallState.active);
   }
 
   void rejectCall() {
     if (_state != CallState.incomingRinging) return;
-    _socket?.emit('call:reject', {'targetId': _remotePeerId, 'data': {}});
-    _updateState(CallState.ended);
+    _socket.emit('call_reject', {'callerId': _remotePeerId});
     _cleanup();
-    _scheduleIdleTimeout();
+    _updateState(CallState.ended);
+    Future.delayed(const Duration(seconds: 1), () {
+      if (_state == CallState.ended) _updateState(CallState.idle);
+    });
   }
 
   void endCall() {
-    if (_state == CallState.idle || _state == CallState.ended) return;
-    if (_remotePeerId.isNotEmpty) {
-      _socket?.emit('call:hangup', {'targetId': _remotePeerId, 'data': {}});
-    }
-    _updateState(CallState.ended);
+    _socket.emit('call_hangup', {'receiverId': _remotePeerId});
     _cleanup();
-    _scheduleIdleTimeout();
-  }
-
-  void _scheduleIdleTimeout() {
-    Future.delayed(const Duration(seconds: 2), () {
+    _updateState(CallState.ended);
+    Future.delayed(const Duration(seconds: 1), () {
       if (_state == CallState.ended) _updateState(CallState.idle);
     });
   }
@@ -442,43 +327,27 @@ class CallService {
   }
 
   void _cleanup() {
-    try {
-      _durationTimer?.cancel();
-      _durationTimer = null;
-      _callDuration = Duration.zero;
+    _durationTimer?.cancel();
+    _durationTimer = null;
+    _callDuration = Duration.zero;
 
-      try {
-        _localRenderer.srcObject = null;
-        _remoteRenderer.srcObject = null;
-      } catch (_) {}
+    _localStream?.getTracks().forEach((track) => track.stop());
+    _localStream = null;
+    _remoteStream = null;
 
-      try {
-        _localStream?.getTracks().forEach((track) {
-          try { track.stop(); } catch (_) {}
-        });
-      } catch (_) {}
+    _peerConnection?.close();
+    _peerConnection = null;
 
-      try { _peerConnection?.close(); } catch (_) {}
+    _localRenderer.srcObject = null;
+    _remoteRenderer.srcObject = null;
 
-      _localStream = null;
-      _remoteStream = null;
-      _peerConnection = null;
-      _remotePeerId = '';
-      _remotePeerName = '';
-    } catch (e) {
-      AppLogger.error('CallService', 'Error during cleanup', e);
-    }
+    _remotePeerId = '';
+    _remotePeerName = '';
   }
 
   void dispose() {
     _cleanup();
-    try {
-      _localRenderer.dispose();
-      _remoteRenderer.dispose();
-    } catch (_) {}
-    _localRendererInitialized = false;
-    _remoteRendererInitialized = false;
-    if (!_callInfoController.isClosed) _callInfoController.close();
-    if (!_videoStateController.isClosed) _videoStateController.close();
+    _durationTimer?.cancel();
+    _callInfoController.close();
   }
 }

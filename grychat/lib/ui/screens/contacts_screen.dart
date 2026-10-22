@@ -19,6 +19,10 @@ class ContactsScreen extends ConsumerWidget {
     for (final entry in presenceMap.entries) {
       if (entry.key == localUserId) continue;
       final peerMatch = peers.where((p) => p.id == entry.key);
+      final presencePic = entry.value['profilePicBase64'] as String?;
+      final storedPic = peerMatch.isNotEmpty
+          ? peerMatch.first.profilePicBase64
+          : null;
       contacts.add({
         'userId': entry.key,
         'displayName':
@@ -29,8 +33,11 @@ class ContactsScreen extends ConsumerWidget {
                       ? entry.key.substring(0, 8)
                       : entry.key)),
         'profilePicBase64':
-            entry.value['profilePicBase64'] ??
-            (peerMatch.isNotEmpty ? peerMatch.first.profilePicBase64 : null),
+            (presencePic != null && presencePic.isNotEmpty)
+                ? presencePic
+                : ((storedPic != null && storedPic.isNotEmpty)
+                      ? storedPic
+                      : null),
         'isOnline': entry.value['status'] == 'online',
         'lastSeen': entry.value['lastSeen'],
       });

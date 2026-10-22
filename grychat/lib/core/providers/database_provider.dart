@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../database/database_service.dart';
 import '../database/models.dart';
@@ -56,8 +56,9 @@ class PeersNotifier extends StateNotifier<List<PeerModel>> {
     try {
       final peers = _dbService.getAllPeers();
       state = peers;
+
     } catch (e) {
-      // best-effort: keep previous state on load failure
+
     }
   }
 
@@ -115,8 +116,9 @@ class MessagesNotifier extends StateNotifier<List<MessageModel>> {
     try {
       final messages = _dbService.getMessagesByPeerIdSorted(_peerId);
       state = messages;
+
     } catch (e) {
-      // best-effort: keep previous state on load failure
+
     }
   }
 
@@ -241,8 +243,14 @@ class UserProfileNotifier extends StateNotifier<UserProfile?> {
       }
       final profile = _dbService.getUserProfile(_currentUserId);
       state = profile;
+      if (profile != null) {
+
+      } else {
+
+      }
+    // ignore: empty_catches
     } catch (e) {
-      // best-effort: keep previous profile on load failure
+
     }
   }
   void onUserChanged(String userId) {

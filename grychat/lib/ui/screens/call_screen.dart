@@ -1,10 +1,8 @@
-﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../core/network/call_service.dart';
 import '../../core/providers/call_provider.dart';
-import '../../core/providers/database_provider.dart';
 
 class CallScreen extends ConsumerStatefulWidget {
   final String peerId;
@@ -26,71 +24,32 @@ class _CallScreenState extends ConsumerState<CallScreen> {
   bool _isMuted = false;
   bool _isCameraOff = false;
   bool _isSpeakerOn = true;
-  StreamSubscription<void>? _videoSub;
-  StreamSubscription<CallInfo?>? _callSub;
-  Timer? _refreshTimer;
-  bool _isPopping = false;
 
   @override
   void initState() {
     super.initState();
+    // Start the call after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final callService = ref.read(callServiceProvider);
-
-      _callSub = callService.callInfoStream.listen((info) {
-        if (!mounted || _isPopping) return;
-        if (info == null ||
-            info.state == CallState.idle ||
-            info.state == CallState.ended) {
-          _isPopping = true;
-          _refreshTimer?.cancel();
-          _videoSub?.cancel();
-          _callSub?.cancel();
-          if (mounted && Navigator.of(context).canPop()) {
-            Navigator.of(context).pop();
-          }
-        }
-      });
-
-      _videoSub = callService.videoStateStream.listen((_) {
-        if (mounted) setState(() {});
-      });
-
-      _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-        if (mounted && !_isPopping) {
-          final callService = ref.read(callServiceProvider);
-          if (callService.state == CallState.active ||
-              callService.state == CallState.connecting) {
-            setState(() {});
-          } else {
-            _refreshTimer?.cancel();
-          }
-        }
-      });
-
-      final profile = ref.read(userProfileProvider);
-      if (profile != null && profile.firstName.isNotEmpty) {
-        callService.localDisplayName = profile.lastName.isNotEmpty
-            ? '${profile.firstName} ${profile.lastName}'
-            : profile.firstName;
-      }
-
-      callService.startCall(widget.peerId, widget.peerName, widget.callType);
+      ref.read(callServiceProvider).startCall(
+            widget.peerId,
+            widget.peerName,
+            widget.callType,
+          );
     });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    _videoSub?.cancel();
-    _callSub?.cancel();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final callInfoAsync = ref.watch(callInfoProvider);
     final callService = ref.read(callServiceProvider);
+
+    // Auto-navigate back when call ends
+    ref.listen<AsyncValue<CallInfo?>>(callInfoProvider, (prev, next) {
+      final info = next.valueOrNull;
+      if (info == null && prev?.valueOrNull != null) {
+        if (mounted) Navigator.of(context).pop();
+      }
+    });
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
@@ -123,6 +82,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
 
     return Column(
       children: [
+        // ── Remote Video (full screen) or Avatar ──
         Expanded(
           child: isVideo && isActive
               ? Stack(
@@ -130,9 +90,9 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                   children: [
                     RTCVideoView(
                       callService.remoteRenderer,
-                      objectFit:
-                          RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                     ),
+                    // Local video pip
                     Positioned(
                       top: 16,
                       right: 16,
@@ -145,8 +105,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                           child: RTCVideoView(
                             callService.localRenderer,
                             mirror: true,
-                            objectFit: RTCVideoViewObjectFit
-                                .RTCVideoViewObjectFitCover,
+                            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                           ),
                         ),
                       ),
@@ -189,9 +148,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                       Text(
                         statusText,
                         style: TextStyle(
-                          color: isActive
-                              ? const Color(0xFF10B981)
-                              : Colors.white54,
+                          color: isActive ? const Color(0xFF10B981) : Colors.white54,
                           fontSize: 14,
                         ),
                       ),
@@ -210,6 +167,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
                 ),
         ),
 
+        // ── Controls ──
         if (isActive || callInfo.state == CallState.outgoingRinging)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 32),
@@ -256,6 +214,7 @@ class _CallScreenState extends ConsumerState<CallScreen> {
             ),
           ),
 
+        // Incoming call: answer/reject
         if (callInfo.state == CallState.incomingRinging)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 32),
@@ -295,7 +254,10 @@ class _CallScreenState extends ConsumerState<CallScreen> {
           Container(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, color: Colors.white, size: 26),
           ),
           const SizedBox(height: 6),

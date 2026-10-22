@@ -929,41 +929,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           itemBuilder: (context, index) {
                             final message = messages[index];
                             final isMe = message.senderId == localUserId;
-                            return _buildMessageBubble(message, isMe);
+                            final showDay = index == 0 ||
+                                !_isSameDay(
+                                  messages[index - 1].timestamp,
+                                  message.timestamp,
+                                );
+                            return Column(
+                              children: [
+                                if (showDay)
+                                  _DaySeparator(date: message.timestamp),
+                                _buildMessageBubble(message, isMe),
+                              ],
+                            );
                           },
                         ),
                 ),
                 if (isTyping)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 6,
-                    ),
-                    color: Colors.white,
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 4),
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(
-                              const Color(0xFF1B4EBA).withValues(alpha: 0.5),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(19),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                          width: 0.8,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation(
+                                const Color(0xFF1B4EBA).withValues(alpha: 0.5),
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$peerName is typing...',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
+                          const SizedBox(width: 8),
+                          Text(
+                            '$peerName is typing',
+                            style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.6),
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 if (_replyToMessage != null)
@@ -1772,6 +1803,52 @@ class _VideoAttachmentPlayerState extends State<_VideoAttachmentPlayer> {
           ),
           Text(widget.fileName, overflow: TextOverflow.ellipsis),
         ],
+      ),
+    );
+  }
+}
+
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+class _DaySeparator extends StatelessWidget {
+  final DateTime date;
+
+  const _DaySeparator({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(day).inDays;
+    final label = diff == 0
+        ? 'Today'
+        : diff == 1
+        ? 'Yesterday'
+        : DateFormat('MMMM d, yyyy').format(date);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
       ),
     );
   }

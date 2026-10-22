@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../database/database_service.dart';
 import '../models/chat_message.dart';
 import '../utils/app_logger.dart';
 
-class ChatService {
+class ChatService with WidgetsBindingObserver {
   final String serverUrl;
   final String localUserId;
   final DatabaseService? databaseService;
@@ -44,6 +45,8 @@ class ChatService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _messageHistoryController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _conversationsController =
+      StreamController<List<Map<String, dynamic>>>.broadcast();
   final _usernameCheckController =
       StreamController<Map<String, dynamic>>.broadcast();
 
@@ -51,7 +54,34 @@ class ChatService {
     required this.serverUrl,
     required this.localUserId,
     this.databaseService,
-  });
+  }) {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        AppLogger.info('ChatService', 'App resumed - refreshing presence');
+        _cancelReconnectTimer();
+        if (!isConnected && !_isConnecting) {
+          _teardownSocket();
+          connect();
+        } else {
+          _startPresenceHeartbeat();
+          _registerPresence();
+          _retryPendingMessages();
+        }
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopPresenceHeartbeat();
+        break;
+    }
+  }
 
   Stream<bool> get connectionStream => _connectionController.stream;
   Stream<ChatMessage> get messageStream => _messageController.stream;
@@ -71,6 +101,8 @@ class ChatService {
       _forwardedMessageController.stream;
   Stream<Map<String, dynamic>> get errorStream => _errorController.stream;
   Stream<Map<String, dynamic>> get messageHistoryStream => _messageHistoryController.stream;
+  Stream<List<Map<String, dynamic>>> get conversationsStream =>
+      _conversationsController.stream;
   Stream<Map<String, dynamic>> get usernameCheckStream => _usernameCheckController.stream;
 
   bool get isConnected {
@@ -333,6 +365,14 @@ class ChatService {
         _messageHistoryController.add({'roomId': roomId, 'messages': list});
       });
 
+      s.on('conversations', (data) {
+        final list = (data['conversations'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ??
+            [];
+        _conversationsController.add(list);
+      });
+
       s.on('checkUsernameResult', (data) {
         _usernameCheckController.add(Map<String, dynamic>.from(data as Map));
       });
@@ -409,6 +449,11 @@ class ChatService {
   void getMessages(String roomId, {int limit = 50}) {
     if (!isConnected) return;
     _socket!.emit('getMessages', {'roomId': roomId, 'limit': limit});
+  }
+
+  void getConversations() {
+    if (!isConnected) return;
+    _socket!.emit('getConversations', {});
   }
 
   void joinRoom(String roomId) {
@@ -575,6 +620,7 @@ class ChatService {
 
   void dispose() {
     _isDisposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     disconnect();
     _teardownSocket();
     _connectionController.close();
@@ -591,6 +637,7 @@ class ChatService {
     _forwardedMessageController.close();
     _errorController.close();
     _messageHistoryController.close();
+    _conversationsController.close();
     _usernameCheckController.close();
   }
 }

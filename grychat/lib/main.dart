@@ -1,6 +1,7 @@
 ﻿import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -198,25 +199,165 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   static const _pageTransitions = PageTransitionsTheme(
     builders: {
-      TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-      TargetPlatform.iOS: ZoomPageTransitionsBuilder(),
-      TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
-      TargetPlatform.macOS: ZoomPageTransitionsBuilder(),
-      TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+      TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
     },
   );
 
   ThemeData _buildTheme(Brightness brightness) {
+    final isLight = brightness == Brightness.light;
     final scheme = ColorScheme.fromSeed(
       seedColor: const Color(0xFF1B4EBA),
       brightness: brightness,
+      surface: isLight ? const Color(0xFFFFFFFF) : const Color(0xFF161A22),
+    ).copyWith(
+      surfaceTint: Colors.transparent,
+      surfaceContainerLowest: isLight
+          ? const Color(0xFFFFFFFF)
+          : const Color(0xFF0F1218),
+      surfaceContainerLow: isLight
+          ? const Color(0xFFF5F6F8)
+          : const Color(0xFF1B2029),
+      surfaceContainer: isLight
+          ? const Color(0xFFEEF0F4)
+          : const Color(0xFF222836),
+      surfaceContainerHigh: isLight
+          ? const Color(0xFFE7EAF0)
+          : const Color(0xFF2A3140),
     );
-    return ThemeData(
+    final base = ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
       scaffoldBackgroundColor:
-          brightness == Brightness.light ? Colors.white : const Color(0xFF171B24),
+          isLight ? const Color(0xFFF5F6F8) : const Color(0xFF111318),
       pageTransitionsTheme: _pageTransitions,
+    );
+    final textTheme = base.textTheme
+        .apply(
+          bodyColor: scheme.onSurface,
+          displayColor: scheme.onSurface,
+          fontFamilyFallback: const [
+            'Segoe UI',
+            'SF Pro Text',
+            'Roboto',
+            'Noto Sans',
+          ],
+        )
+        .copyWith(
+          headlineSmall: base.textTheme.headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.5),
+          titleLarge: base.textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.3),
+          titleMedium: base.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600, letterSpacing: -0.2),
+          titleSmall: base.textTheme.titleSmall
+              ?.copyWith(fontWeight: FontWeight.w600),
+        );
+
+    return base.copyWith(
+      textTheme: textTheme,
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        shadowColor: Colors.transparent,
+        centerTitle: false,
+        iconTheme: IconThemeData(color: scheme.onSurface),
+        titleTextStyle: textTheme.titleLarge?.copyWith(
+          color: scheme.onSurface,
+          fontSize: 20,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainerLow.withValues(alpha: 0.7),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        hintStyle: TextStyle(
+          color: scheme.onSurface.withValues(alpha: 0.4),
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.error, width: 1.2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: scheme.error, width: 1.5),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.primary,
+          foregroundColor: scheme.onPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 0,
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 0,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: scheme.onSurface.withValues(alpha: 0.08),
+        thickness: 1,
+        space: 1,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: false,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isLight ? const Color(0xFF1F2430) : scheme.surface,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        tileColor: Colors.transparent,
+      ),
     );
   }
 
