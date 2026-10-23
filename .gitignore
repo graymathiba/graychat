@@ -20,6 +20,12 @@ backend/index.d.ts.map
 .env.*
 !.env.example
 
+# Firebase client config that embeds API keys.
+# Download from Firebase Console → Project Settings → Your apps.
+# Do not commit these; the launch scripts read keys from .env instead.
+grychat/android/app/google-services.json
+grychat/ios/Runner/GoogleService-Info.plist
+
 # Agent/IDE configs (API keys, secrets)
 .continue/
 .agents/

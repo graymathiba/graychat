@@ -8,7 +8,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: join(__dirname, '.env') });
 
 const URL = process.env.LIVE_URL || 'https://graychat.onrender.com';
-const API_KEY = 'REDACTED_GOOGLE_API_KEY';
+const API_KEY = process.env.FIREBASE_API_KEY ?? '';
+if (!API_KEY) {
+  throw new Error(
+    'FIREBASE_API_KEY is not set. Add it to backend/.env (see .env.example).',
+  );
+}
 const PROJECT_ID = 'graychat-db6a0';
 
 const ts = Date.now();

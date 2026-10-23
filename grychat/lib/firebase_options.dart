@@ -3,6 +3,20 @@ import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
 class DefaultFirebaseOptions {
+  static const String _androidApiKey =
+      String.fromEnvironment('FIREBASE_ANDROID_API_KEY');
+  static const String _webApiKey = String.fromEnvironment('FIREBASE_API_KEY');
+
+  static void _requireKey(String key, String defineName) {
+    if (key.isEmpty) {
+      throw StateError(
+        'Firebase API key is not configured. Pass '
+        '--dart-define=$defineName=<key> or add $defineName to the .env '
+        'file used by the launch scripts.',
+      );
+    }
+  }
+
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
       throw UnsupportedError(
@@ -12,6 +26,7 @@ class DefaultFirebaseOptions {
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
+        _requireKey(_androidApiKey, 'FIREBASE_ANDROID_API_KEY');
         return android;
       case TargetPlatform.iOS:
         throw UnsupportedError(
@@ -24,6 +39,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
+        _requireKey(_webApiKey, 'FIREBASE_API_KEY');
         return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
@@ -38,7 +54,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'REDACTED_GOOGLE_API_KEY',
+    apiKey: _androidApiKey,
     appId: '1:842272015997:android:6beb5c901b827a8c8c9314',
     messagingSenderId: '842272015997',
     projectId: 'graychat-db6a0',
@@ -46,7 +62,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'REDACTED_GOOGLE_API_KEY',
+    apiKey: _webApiKey,
     appId: '1:842272015997:web:28382b862850f4ab8c9314',
     messagingSenderId: '842272015997',
     projectId: 'graychat-db6a0',
